@@ -3,7 +3,7 @@
 Implementados dois modelos manuais, inativos e em dry-run:
 
 - `workflows/x-check-account.json`: consultar a conta autenticada, sem criar posts.
-- `workflows/x-text.json`: validar texto, conferir a conta e publicar um post de texto.
+- `workflows/x-text.json`: formulario com texto, hashtags, mencoes, escolha Simular/Publicar e confirmacao explicita. Instale com `python3 scripts/install_manual_forms.py --publish` e abra `/form/publicar-x` com login n8n.
 
 O modelo de publicacao chama `GET https://api.x.com/2/users/me`, confere o ID com `X_USER_ID` e so entao faz `POST https://api.x.com/2/tweets` com JSON `text`. A resposta final inclui `post_id` e o link. Tokens nunca sao retornados pelos nodes Code.
 
@@ -50,3 +50,5 @@ Os arquivos e testes do X estao implementados. A aplicacao do Compose com leitur
 - [Consultar usuario autenticado](https://docs.x.com/x-api/users/get-my-user)
 - [OAuth 2.0 PKCE e renovacao](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code)
 - [Pesos Unicode twitter-text v3](https://github.com/twitter/twitter-text/blob/master/config/v3.json)
+
+O formulario manual usa a mesma verificacao de conta do publicador interno. Para envio real, exige a opcao Publicar, a caixa CONFIRMO e CHATBOT_PUBLISH_ENABLED=true. A descricao e os campos de hashtags/mencoes sao combinados no texto antes da validacao do limite; nenhum modelo OpenAI participa.

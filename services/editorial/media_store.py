@@ -21,7 +21,8 @@ class MediaStore:
             db.executescript('''CREATE TABLE IF NOT EXISTS media_assets
               (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, extension TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS session_media (session_id TEXT PRIMARY KEY, items TEXT NOT NULL);
-              CREATE TABLE IF NOT EXISTS media_panels (session_id TEXT PRIMARY KEY, key TEXT NOT NULL);''')
+              CREATE TABLE IF NOT EXISTS media_panels (session_id TEXT PRIMARY KEY, key TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS session_media_options (session_id TEXT PRIMARY KEY, options TEXT NOT NULL);''')
 
     @contextmanager
     def db(self):
@@ -58,6 +59,7 @@ class MediaStore:
         for i in ids:
             if not isinstance(i, str): raise ValueError('Midia invalida.')
             self.asset(db, sid, i)
+        db.execute('DELETE FROM session_media_options WHERE session_id=?',(sid,))
         db.execute('INSERT INTO session_media VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET items=excluded.items', (sid, json.dumps(ids)))
 
     def upload(self, sid, name, raw):
@@ -65,14 +67,19 @@ class MediaStore:
         if not raw or len(raw) > LIMIT: raise ValueError('Arquivo vazio ou acima de 100 MB.')
         name = Path(name).name[:180]
         suffix = Path(name).suffix.lower()
-        if suffix not in ('.jpg','.jpeg','.png','.mp4','.mov'): raise ValueError('Use JPEG, PNG, MP4 ou MOV.')
+        if suffix not in ('.jpg','.jpeg','.png','.mp4','.mov','.mp3','.wav','.m4a','.aac','.ogg'): raise ValueError('Use JPEG, PNG, MP4, MOV ou arquivo de audio MP3/WAV/M4A/AAC/OGG.')
         asset_id = secrets.token_hex(16)
         with tempfile.TemporaryDirectory(dir=self.directory) as tmp:
             source = Path(tmp) / ('input' + suffix); source.write_bytes(raw)
             try:
                 info = json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(source)], stderr=subprocess.DEVNULL, timeout=20))
-                video = next(s for s in info['streams'] if s['codec_type']=='video')
-                if suffix in ('.jpg','.jpeg','.png'):
+                video = next((s for s in info['streams'] if s['codec_type']=='video'),{})
+                if suffix in ('.mp3','.wav','.m4a','.aac','.ogg'):
+                    if not any(s['codec_type']=='audio' for s in info['streams']) or not 0<float(info['format']['duration'])<=3600:raise ValueError('Audio invalido ou acima de uma hora.')
+                    mime,ext='audio/mp4','m4a'
+                    output=self.directory/(asset_id+'.m4a')
+                    subprocess.run(['ffmpeg','-nostdin','-v','error','-i',str(source),'-map','0:a:0','-vn','-c:a','aac','-ar','48000','-b:a','128k',str(output)],check=True,timeout=90,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                elif suffix in ('.jpg','.jpeg','.png'):
                     if video['codec_name'] not in ('mjpeg','png') or video['width'] * video['height'] > 40_000_000:
                         raise ValueError('Imagem invalida ou muito grande.')
                     output = self.directory / (asset_id + '.jpg')
@@ -115,7 +122,7 @@ class MediaStore:
         return [{**m, 'url': base + '/' + m['asset_id'] + '.' + m['extension'] if base else None} for m in items]
 
     def file(self, filename):
-        if not re.fullmatch(r'[a-f0-9]{32}\.(jpg|mp4)', filename): raise ValueError('Midia desconhecida.')
+        if not re.fullmatch(r'[a-f0-9]{32}\.(jpg|mp4|m4a)', filename): raise ValueError('Midia desconhecida.')
         path = self.directory / filename
         if not path.is_file(): raise ValueError('Midia desconhecida.')
         return path

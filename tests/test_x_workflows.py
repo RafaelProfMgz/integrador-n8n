@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 import subprocess
 import unittest
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
+from build_manual_forms import manual_form
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('builder_x', ROOT/'scripts/build_workflows.py')
@@ -83,5 +86,5 @@ class XWorkflows(unittest.TestCase):
         self.assertNotIn('media',post['parameters']['jsonBody'])
         for filename,check in [('x-text.json',False),('x-check-account.json',True)]:
             artifact=json.loads((ROOT/'workflows'/filename).read_text())
-            self.assertEqual(artifact,builder.build_x(check))
+            self.assertEqual(artifact,builder.build_x(True) if check else manual_form('x'))
             self.assertFalse(artifact['active'])

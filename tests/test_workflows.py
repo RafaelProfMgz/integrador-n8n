@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 import subprocess
 import unittest
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
+from build_manual_forms import manual_form
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('builder', ROOT / 'scripts/build_workflows.py')
@@ -60,7 +63,7 @@ class WorkflowBehavior(unittest.TestCase):
     def test_templates_have_safe_defaults_and_valid_edges(self):
         for platform in ('facebook','instagram'):
             workflow = json.loads((ROOT/'workflows'/f'{platform}-photo.json').read_text())
-            self.assertEqual(workflow,builder.build(platform))
+            self.assertEqual(workflow,manual_form(platform))
             self.assertFalse(workflow['active'])
             names = {n['name'] for n in workflow['nodes']}
             for node in workflow['nodes']:

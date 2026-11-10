@@ -168,3 +168,6 @@ if __name__ == '__main__':
         (ROOT / 'workflows' / f'{platform}-photo.json').write_text(json.dumps(build(platform), ensure_ascii=False, indent=2) + '\n')
     for filename, check in [('x-text.json', False), ('x-check-account.json', True)]:
         (ROOT / 'workflows' / filename).write_text(json.dumps(build_x(check), ensure_ascii=False, indent=2) + '\n')
+
+    from build_manual_forms import main as build_forms
+    build_forms()

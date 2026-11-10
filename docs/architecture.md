@@ -26,7 +26,7 @@ Um processo n8n em modo regular atende o inicio do projeto. Banco sem porta publ
 
 PostgreSQL guarda o estado interno do n8n; o volume n8n_data guarda configuracao e binarios. A chave N8N_ENCRYPTION_KEY vem do `.env` e deve acompanhar todos os backups. A versao n8n e fixada em 2.47.3; PostgreSQL usa a linha 17-alpine, que recebe atualizacoes. Para builds integralmente reproduziveis, fixe tambem digests apos validar as imagens.
 
-Os templates usam Manual Trigger e HTTP Request com header Authorization resolvido por referencia `$env`; IDs, versao Graph e tokens sao configurados exclusivamente no `.env`. Nao ha cron, webhook publico nem agente de IA publicando. A imagem precisa estar acessivel por HTTPS para a Meta; o Docker nao a hospeda. Os templates manuais atendem foto individual. Pelo chatbot, anexos Instagram atendem foto, Reel e carrossel; stories e formatos adicionais continuam fora do escopo.
+Os templates usam Manual Trigger e HTTP Request com header Authorization resolvido por referencia `$env`; IDs, versao Graph e tokens sao configurados exclusivamente no `.env`. Nao ha cron, webhook publico nem agente de IA publicando. A imagem precisa estar acessivel por HTTPS para a Meta; o Docker nao a hospeda. Os templates manuais atendem foto individual. Pelo chatbot, anexos Instagram atendem foto, Reel e carrossel; Stories e montagem de video com musica estao disponiveis pelo formulario manual Instagram; formatos adicionais continuam fora do escopo.
 
 ## Contrato editorial futuro
 
@@ -66,3 +66,9 @@ O servico `community` e separado do editorial, recebe somente credenciais sociai
 ## Upload de midias implementado
 
 O chatbot recebe anexos binarios e guarda-os no editorial_data. O painel local da mesma sessao permite upload multiplo, previa e ordenacao; importacao de caminhos fica limitada a uma biblioteca explicitamente montada em modo somente leitura. A IA recebe fotos para redacao, mas a selecao e a ordem sao controladas pelo servico editorial. Alterar midias invalida a confirmacao. O adaptador instagram-media, separado do modelo, implementa foto, Reel e carrossel com registro duravel de containers e bloqueio apos resultado incerto. media-public serve somente arquivos; HTTPS externo depende de proxy/tunel configurado. Facebook e X continuam com os formatos anteriores. Nenhuma agenda ou permissao de envio e habilitada pela instalacao.
+
+## Formularios manuais
+
+Os tres modelos de publicacao manual usam Form Trigger autenticado no n8n, com descricao, hashtags, mencoes e modo Simular/Publicar. Instagram recebe arquivos e ordem; Facebook recebe uma foto; X recebe texto. O servico editorial valida a submissao, registra os jobs e exige CONFIRMO para envio real. Os publicadores sao compartilhados com o chatbot, sem passar pela IA. O verificador de conta X continua com entrada manual e sem POST de publicacao.
+
+O formulario Instagram guarda opcoes de formato fora do rascunho do modelo. MediaTransform monta MP4 vertical local com FFmpeg, controla ordem, duracao e audio enviado e registra a montagem no SQLite editorial. O adaptador Instagram diferencia imagem, Reel, carrossel e Story; o Story nao usa legenda ou share_to_feed. Nao ha integracao com o catalogo musical do Instagram.

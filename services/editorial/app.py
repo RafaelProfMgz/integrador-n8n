@@ -13,6 +13,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from image_agent import ImageAgent
 from media_store import MediaStore, LIMIT
+from media_transform import MediaTransform
 from urllib.parse import parse_qs, unquote
 from pathlib import Path
 from urllib.parse import urlparse
@@ -255,7 +256,10 @@ class Editorial:
                     if platform == 'x': payload.update(operation='publish_text', text=draft['x_text'])
                     else:
                         payload.update(caption=draft[platform+'_caption'], image_url=draft['image_url'])
-                        if media: payload.update(media=self.media.public_items(media),request_id=job_id)
+                        if media:
+                            payload.update(media=self.media.public_items(media),request_id=job_id)
+                            options=db.execute('SELECT options FROM session_media_options WHERE session_id=?',(sid,)).fetchone()
+                            if options:payload['format']=json.loads(options[0]).get('format','auto')
                     db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,NULL)', (job_id,sid,s['revision'],platform,int(dry_run),'dispatching'))
                     jobs.append({'job_id': job_id, 'platform': platform, 'workflow_id': self.workflows[platform], 'payload': payload})
                 db.execute('UPDATE sessions SET status=?,token=NULL WHERE id=?', ('dispatching',sid))
@@ -290,6 +294,75 @@ class Editorial:
             errors = missing(updated,media)
             if errors: return self.response(answer['reply'] + '\n\n' + '\n'.join(errors))
             return self.preview(db,s,updated)
+
+    def manual_prepare(self, data):
+        sid=data.get('session_id','');platform=data.get('platform');form=data.get('form')
+        if platform not in PLATFORMS or not re.fullmatch(r'manual-[a-z]+-[A-Za-z0-9_-]+',sid):raise ValueError('Formulario invalido.')
+        if not isinstance(form,dict):raise ValueError('Formulario invalido.')
+        def text(key):
+            value=form.get(key,'')
+            if not isinstance(value,str) or len(value)>12000:raise ValueError('Campo invalido: '+key)
+            return value.strip()
+        caption=text('description')
+        if not caption:raise ValueError('Informe a descricao / legenda.')
+        for key,prefix in [('tags','@'),('hashtags','#')]:
+            parts=[x for x in re.split(r'[,;\s]+',text(key)) if x]
+            if parts:caption+='\n\n'+' '.join(prefix+x.lstrip('@#') for x in parts)
+        mode=form.get('mode') or 'Simular'
+        if mode not in ('Simular','Publicar'):raise ValueError('Escolha Simular ou Publicar.')
+        live=mode=='Publicar'
+        confirmation=form.get('confirmation',[])
+        if live and confirmation not in ('CONFIRMO',['CONFIRMO']):raise ValueError('Para publicar, marque CONFIRMO no formulario.')
+        if live and not self.live:raise ValueError('Publicacao real desabilitada no .env. Configure CHATBOT_PUBLISH_ENABLED=true.')
+        ids=data.get('attachments',[])
+        if not isinstance(ids,list) or len(ids)>11 or any(not isinstance(i,str) for i in ids) or len(set(ids))!=len(ids):raise ValueError('Anexos invalidos.')
+        if ids and text('image_url'):raise ValueError('Escolha anexos ou URL da foto, para nao enviar a midia errada.')
+        with self.db() as db:
+            if db.execute('SELECT 1 FROM sessions WHERE id=?',(sid,)).fetchone():
+                return self.response('Este formulario ja foi processado. Confira o resultado antes de repetir.')
+            assets=[self.media.asset(db,sid,i) for i in ids]
+        audio=[m for m in assets if m['mime_type'].startswith('audio/')]
+        items=[m for m in assets if not m['mime_type'].startswith('audio/')]
+        order=text('order')
+        if order:
+            try:indices=[int(x.strip())-1 for x in order.split(',')]
+            except ValueError:raise ValueError('Ordem invalida. Use por exemplo 2,1,3.') from None
+            if sorted(indices)!=list(range(len(items))):raise ValueError('A ordem precisa conter cada imagem/video uma unica vez; a musica fica fora da numeracao.')
+            items=[items[i] for i in indices]
+        options={}
+        if platform=='instagram':
+            if items:items,options=MediaTransform(self.media).prepare(sid,items,audio,form)
+            elif (form.get('format') or 'Automatico') not in ('Automatico','Foto no feed') or audio:
+                raise ValueError('Anexe os arquivos para usar Story, Reels, Carrossel ou musica.')
+        elif audio:raise ValueError('Musica esta disponivel no formulario Instagram.')
+        ids=[m['asset_id'] for m in items]
+        draft=dict(EMPTY,destinations=[platform],image_url=text('image_url'))
+        draft['x_text' if platform=='x' else platform+'_caption']=caption
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM sessions WHERE id=?',(sid,)).fetchone():
+                return self.response('Este formulario ja foi processado. Confira o resultado antes de repetir.')
+            items=[self.media.asset(db,sid,i) for i in ids]
+            if platform=='x' and items:raise ValueError('X aceita somente texto nesta versao.')
+            if platform=='facebook' and items:
+                if len(items)!=1 or items[0]['mime_type']!='image/jpeg':raise ValueError('Facebook aceita uma foto; videos e carrosseis estao disponiveis no formulario Instagram.')
+                public=self.media.public_items(items)[0]['url']
+                if not public:raise ValueError('Configure MEDIA_PUBLIC_BASE_URL para publicar a foto anexada no Facebook.')
+                draft['image_url']=public;ids=[];items=[]
+            errors=missing(draft,items)
+            if errors:raise ValueError(' '.join(errors))
+            if live and items and not os.getenv('MEDIA_PUBLIC_BASE_URL','').strip():raise ValueError('Hospedagem HTTPS de midias pendente.')
+            self.media.select(db,sid,ids)
+            if options:db.execute('INSERT INTO session_media_options VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET options=excluded.options',(sid,json.dumps(options)))
+            session=self.view(db,sid)
+            db.execute('UPDATE sessions SET draft=?,revision=1 WHERE id=?',(json.dumps(draft),sid))
+            session.update(revision=1)
+            result=self.preview(db,session,draft)
+            row=db.execute('SELECT token FROM sessions WHERE id=?',(sid,)).fetchone()
+            token=row[0]
+        if not token:return result
+        # User's form supplies final text, destinations and explicit consent; no model participates.
+        return self.chat(sid,('CONFIRMAR ' if live else 'SIMULAR ')+token)
 
     def results(self, entries):
         if not isinstance(entries,list) or not entries or len(entries)>3: raise ValueError('Resultados invalidos')
@@ -332,6 +405,10 @@ class Editorial:
                        (state,json.dumps(data),sid,rows[0][0]['revision'],'dispatching'))
             descriptions={'simulated':'simulacao concluida, sem publicar','published':'publicado','unknown':'resultado incerto; confira o n8n antes de repetir','dispatching':'em andamento','image_generated':'imagem gerada; revise antes de publicar'}
             output='\n'.join(p.upper()+': '+descriptions[v['status']]+(' — '+v['url'] if v.get('url') else '') for p,v in data.items())
+            options=db.execute('SELECT options FROM session_media_options WHERE session_id=?',(sid,)).fetchone()
+            if options:
+                meta=json.loads(options[0]);output+='\nFormato: '+meta.get('format','auto')
+                if meta.get('music_name'):output+='\nTrilha incorporada: '+meta['music_name']
             image=data.get('image',{})
             if image.get('status')=='image_generated':
                 if image.get('image_url'):output+='\nImagem: '+image['image_url']+'\nPeca uma nova previa para conferir a publicacao com esta imagem.'
@@ -369,6 +446,7 @@ class Handler(BaseHTTPRequestHandler):
             if size<=0 or size>65536: raise ValueError('Requisicao invalida')
             data=json.loads(self.rfile.read(size))
             if self.path=='/chat': result=self.editorial.chat(data.get('session_id'),data.get('message'),data.get('attachments'))
+            elif self.path=='/manual/prepare': result=self.editorial.manual_prepare(data)
             elif self.path=='/images/generate': result=self.editorial.images.generate(data)
             elif self.path=='/results': result=self.editorial.results(data.get('results'))
             else: return self.send_json(404,{'error':'not_found'})

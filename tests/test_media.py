@@ -134,6 +134,20 @@ class PublishingTests(unittest.TestCase):
         self.publisher.publish(self.p)
         data=[d for _,d in self.calls if d][0]
         self.assertEqual(data['media_type'],'REELS');self.assertIn('video_url',data)
+    def test_story_uses_stories_without_caption_or_feed_flag(self):
+        self.p.update(format='story',media=[self.item('b'*32,'video/mp4')])
+        self.publisher.publish(self.p)
+        data=[d for _,d in self.calls if d][0]
+        self.assertEqual(data['media_type'],'STORIES')
+        self.assertNotIn('caption',data);self.assertNotIn('share_to_feed',data)
+        self.p['format']='reel'
+        with self.assertRaises(ValueError):self.publisher.publish(self.p)
+
+    def test_story_and_explicit_carousel_validate_before_api(self):
+        for fmt in ('story','reel','carousel','invalid'):
+            with self.assertRaises(ValueError):self.publisher.publish(dict(self.p,format=fmt))
+        self.assertFalse(self.calls)
+
     def test_timeout_recorded_without_retry(self):
         self.fail=True
         with self.assertRaises(ValueError):self.publisher.publish(self.p)

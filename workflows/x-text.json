@@ -1,51 +1,107 @@
 {
-  "name": "X - publicar texto manual (dry-run)",
+  "name": "Manual - publicar no X (formulario)",
   "active": false,
   "nodes": [
     {
-      "id": "inicio-manual",
-      "name": "Inicio manual",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
+      "id": "chat-editorial",
+      "name": "Formulario de publicacao",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
       "position": [
         0,
         0
       ],
-      "parameters": {}
+      "parameters": {
+        "authentication": "n8nUserAuth",
+        "requireExecuteAccess": true,
+        "formTitle": "Publicar no X",
+        "formDescription": "Preencha o conteudo final. Simular nao envia nada. Para envio real, selecione Publicar e marque CONFIRMO: o conteudo sera enviado a conta X configurada nesta instalacao. Aceita texto de ate 280 unidades ponderadas.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Descricao / legenda",
+              "fieldName": "description",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Hashtags",
+              "fieldName": "hashtags",
+              "placeholder": "Separe por espacos ou virgulas"
+            },
+            {
+              "fieldLabel": "Mencoes / tags",
+              "fieldName": "tags",
+              "placeholder": "@perfil1 @perfil2"
+            },
+            {
+              "fieldLabel": "Modo",
+              "fieldName": "mode",
+              "fieldType": "dropdown",
+              "defaultValue": "Simular",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Simular"
+                  },
+                  {
+                    "option": "Publicar"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Confirmacao de publicacao",
+              "fieldName": "confirmation",
+              "fieldType": "checkbox",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "CONFIRMO"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "path": "publicar-x",
+          "buttonLabel": "Executar",
+          "appendAttribution": false,
+          "includeUserInOutput": false
+        }
+      },
+      "webhookId": "manual-x"
     },
     {
-      "id": "conteudo",
-      "name": "Conteudo",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "conversar-e-preparar",
+      "name": "Preparar formulario",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         220,
         0
       ],
       "parameters": {
-        "jsCode": "return [{json: {\"operation\": \"publish_text\", \"dry_run\": true, \"approved\": false, \"text\": \"Minha primeira publicacao de teste no X\"}}];"
+        "method": "POST",
+        "url": "http://editorial:8080/manual/prepare",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({session_id:$('Identificar formulario').first().json.sessionId,platform:'x',form:$('Identificar formulario').first().json,attachments:$json.attachments || []}) }}",
+        "options": {
+          "timeout": 900000
+        }
       }
     },
     {
-      "id": "validar",
-      "name": "Validar",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        440,
-        0
-      ],
-      "parameters": {
-        "jsCode": "const p = $input.first().json;\nif (typeof p.dry_run !== 'boolean') throw new Error('dry_run deve ser booleano');\nconst check = p.operation === 'check_account';\nif (!check && p.operation !== 'publish_text') throw new Error('Operacao X invalida');\nlet text;\nlet weight = 0;\nif (!check) {\n  if (typeof p.text !== 'string' || !p.text.trim()) throw new Error('Texto obrigatorio');\n  text = p.text.normalize('NFC');\n  // Estimativa local baseada nos pesos twitter-text v3.\n  // Sem parser completo de URLs/emojis; a API continua sendo a validacao final.\n  for (const char of text) {\n    const cp = char.codePointAt(0);\n    if (cp === 0xFFFE || cp === 0xFFFF || cp === 0xFEFF || (cp >= 0xD800 && cp <= 0xDFFF)) throw new Error('Texto contem caractere invalido');\n    weight += (cp <= 0x10FF || (cp >= 0x2000 && cp <= 0x200D) || (cp >= 0x2010 && cp <= 0x201F) || (cp >= 0x2032 && cp <= 0x2037)) ? 1 : 2;\n  }\n  if (weight > 280) throw new Error('Texto excede a estimativa local de 280; reduza o texto ou a URL');\n}\nif (!p.dry_run) {\n  if (!check && p.approved !== true) throw new Error('Aprovacao explicita necessaria');\n  if (!($env.X_OAUTH2_ACCESS_TOKEN || '').trim()) throw new Error('Configure X_OAUTH2_ACCESS_TOKEN no .env (token de usuario)');\n  if (!check && !/^\\d+$/.test($env.X_USER_ID || '')) throw new Error('Configure X_USER_ID numerico no .env');\n}\n// Retorne apenas campos editoriais; nunca copie ambiente/tokens para a saida.\nreturn [{json: {platform: 'x', operation: p.operation, dry_run: p.dry_run,\n  approved: p.approved === true, ...(check ? {} : {text, estimated_weight: weight})}}];"
-      }
-    },
-    {
-      "id": "simular",
-      "name": "Simular",
+      "id": "tem-envios",
+      "name": "Tem envios",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        660,
+        440,
         0
       ],
       "parameters": {
@@ -58,8 +114,8 @@
           },
           "conditions": [
             {
-              "id": "dry-run",
-              "leftValue": "={{ $json.dry_run }}",
+              "id": "dispatch",
+              "leftValue": "={{ $json.jobs.length > 0 }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -74,193 +130,347 @@
       }
     },
     {
-      "id": "previa-sem-publicar",
-      "name": "Previa sem publicar",
+      "id": "responder",
+      "name": "Responder",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        900,
-        -140
+        1500,
+        200
       ],
       "parameters": {
-        "jsCode": "return [{json: {status: 'dry_run', content: $input.first().json, message: 'Nenhuma chamada externa realizada'}}];"
+        "jsCode": "return [{json:{output:$input.first().json.output}}];"
       }
     },
     {
-      "id": "consultar-conta-x",
-      "name": "Consultar conta X",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "preparar-envios",
+      "name": "Preparar envios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
-        900,
-        120
+        660,
+        0
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://api.x.com/2/users/me",
-        "authentication": "none",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.X_OAUTH2_ACCESS_TOKEN }}"
-            }
-          ]
+        "jsCode": "return $input.first().json.jobs.map(job=>({json:job}));"
+      }
+    },
+    {
+      "id": "chamar-publicador",
+      "name": "Chamar publicador",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $json.workflow_id }}",
+          "mode": "id"
         },
+        "mode": "each",
         "options": {
-          "timeout": 30000,
-          "redirect": {
-            "redirect": {
-              "followRedirects": false
-            }
-          }
+          "waitForSubWorkflow": true
         }
       },
-      "retryOnFail": false
+      "onError": "continueRegularOutput"
     },
     {
-      "id": "conferir-conta-x",
-      "name": "Conferir conta X",
+      "id": "reunir-resultados",
+      "name": "Reunir resultados",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1120,
-        120
+        1100,
+        0
       ],
       "parameters": {
-        "jsCode": "const result = $input.first().json;\nconst user = result.data;\nif (result.errors?.length || !user || typeof user.id !== 'string' || !/^\\d+$/.test(user.id)) throw new Error('Resposta X sem conta valida');\nconst expected = $env.X_USER_ID || '';\nif (expected && user.id !== expected) throw new Error('Conta autenticada diverge de X_USER_ID; publicacao bloqueada');\nreturn [{json: {status: expected ? 'account_verified' : 'account_identified', user_id: user.id, username: user.username}}];"
+        "jsCode": "const jobs=$('Preparar envios').all();const results=$input.all();if(jobs.length!==results.length) throw new Error('Numero inesperado de retornos; confira as execucoes antes de repetir');return [{json:{results:results.map((item,i)=>({job_id:jobs[i].json.job_id,result:item.json}))}}];"
       }
     },
     {
-      "id": "publicar-texto-x",
-      "name": "Publicar texto X",
+      "id": "registrar-resultados",
+      "name": "Registrar resultados",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1340,
-        120
+        1320,
+        0
       ],
       "parameters": {
         "method": "POST",
-        "url": "https://api.x.com/2/tweets",
-        "authentication": "none",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.X_OAUTH2_ACCESS_TOKEN }}"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 30000,
-          "redirect": {
-            "redirect": {
-              "followRedirects": false
-            }
-          }
-        },
+        "url": "http://editorial:8080/results",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({text: $('Validar').first().json.text}) }}"
-      },
-      "retryOnFail": false
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 90000
+        }
+      }
     },
     {
-      "id": "resultado-x",
-      "name": "Resultado X",
+      "id": "separar-anexos",
+      "name": "Separar anexos",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
-        120
+        60,
+        0
       ],
       "parameters": {
-        "jsCode": "const result = $input.first().json;\nif (result.errors?.length || !result.data || typeof result.data.id !== 'string' || !/^\\d+$/.test(result.data.id)) throw new Error('Resposta de publicacao X ambigua; reconcilie na plataforma antes de repetir');\nreturn [{json: {status: 'published', platform: 'x', post_id: result.data.id,\n  url: 'https://x.com/i/web/status/' + result.data.id}}];"
+        "jsCode": "const item=$input.first(); const entries=Object.entries(item.binary || {}); if(!entries.length)return [{json:{has_files:false}}]; return entries.map(([key,file])=>({json:{has_files:true,name:file.fileName || 'arquivo.jpg'},binary:{data:file}}));"
+      }
+    },
+    {
+      "id": "recebeu-arquivos",
+      "name": "Recebeu arquivos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-files",
+              "leftValue": "={{ $json.has_files }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "guardar-anexo",
+      "name": "Guardar anexo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        180,
+        -220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://editorial:8080/media/upload?session=' + encodeURIComponent($('Identificar formulario').first().json.sessionId) + '&name=' + encodeURIComponent($json.name) }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "reunir-anexos",
+      "name": "Reunir anexos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{attachments:$input.all().map(item=>{if(!item.json.asset_id)throw new Error('Anexo nao foi salvo');return item.json.asset_id;})}}];"
+      }
+    },
+    {
+      "id": "identificar-formulario",
+      "name": "Identificar formulario",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const i=$input.first();return [{json:{...i.json,sessionId:'manual-x-'+$execution.id},binary:i.binary}];"
+      }
+    },
+    {
+      "id": "resultado-do-formulario",
+      "name": "Resultado do formulario",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.6,
+      "position": [
+        1800,
+        0
+      ],
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Resultado da publicacao",
+        "completionMessage": "={{ $json.output }}",
+        "options": {}
       }
     }
   ],
   "connections": {
-    "Inicio manual": {
+    "Separar anexos": {
       "main": [
         [
           {
-            "node": "Conteudo",
+            "node": "Recebeu arquivos",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Conteudo": {
+    "Recebeu arquivos": {
       "main": [
         [
           {
-            "node": "Validar",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validar": {
-      "main": [
-        [
-          {
-            "node": "Simular",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Simular": {
-      "main": [
-        [
-          {
-            "node": "Previa sem publicar",
+            "node": "Guardar anexo",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Consultar conta X",
+            "node": "Preparar formulario",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Consultar conta X": {
+    "Guardar anexo": {
       "main": [
         [
           {
-            "node": "Conferir conta X",
+            "node": "Reunir anexos",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Conferir conta X": {
+    "Reunir anexos": {
       "main": [
         [
           {
-            "node": "Publicar texto X",
+            "node": "Preparar formulario",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Publicar texto X": {
+    "Tem envios": {
       "main": [
         [
           {
-            "node": "Resultado X",
+            "node": "Preparar envios",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar envios": {
+      "main": [
+        [
+          {
+            "node": "Chamar publicador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar publicador": {
+      "main": [
+        [
+          {
+            "node": "Reunir resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reunir resultados": {
+      "main": [
+        [
+          {
+            "node": "Registrar resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar resultados": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formulario de publicacao": {
+      "main": [
+        [
+          {
+            "node": "Identificar formulario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identificar formulario": {
+      "main": [
+        [
+          {
+            "node": "Separar anexos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar formulario": {
+      "main": [
+        [
+          {
+            "node": "Tem envios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder": {
+      "main": [
+        [
+          {
+            "node": "Resultado do formulario",
             "type": "main",
             "index": 0
           }

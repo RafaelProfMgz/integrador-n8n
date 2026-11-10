@@ -39,7 +39,13 @@ class Publisher:
         for m in media:
             if not isinstance(m,dict) or m.get('mime_type') not in ('image/jpeg','video/mp4') or not re.fullmatch(r'[a-f0-9]{32}',m.get('asset_id','')):
                 raise ValueError('Midia invalida.')
-        if p['dry_run']:return {'status':'dry_run','media_count':len(media),'format':'carousel' if len(media)>1 else 'reel' if media[0]['mime_type']=='video/mp4' else 'image'}
+        fmt=p.get('format') or 'auto'
+        if fmt=='auto':fmt='carousel' if len(media)>1 else 'reel' if media[0]['mime_type']=='video/mp4' else 'image'
+        if fmt not in ('image','reel','story','carousel'):raise ValueError('Formato de publicacao invalido.')
+        if fmt=='image' and (len(media)!=1 or media[0]['mime_type']!='image/jpeg'):raise ValueError('Foto no feed exige uma imagem.')
+        if fmt in ('reel','story') and (len(media)!=1 or media[0]['mime_type']!='video/mp4'):raise ValueError('Story/Reels exige um video preparado.')
+        if fmt=='carousel' and len(media)<2:raise ValueError('Carrossel exige ao menos duas midias.')
+        if p['dry_run']:return {'status':'dry_run','media_count':len(media),'format':fmt}
         if p.get('approved') is not True:raise ValueError('Confirmacao explicita necessaria.')
         request_id=p.get('request_id','')
         if not re.fullmatch(r'[a-f0-9]{32}',request_id):raise ValueError('Identificador da tentativa invalido.')
@@ -52,7 +58,7 @@ class Publisher:
         for m in media:
             ext='jpg' if m['mime_type']=='image/jpeg' else 'mp4'
             if m.get('url')!=base+'/'+m['asset_id']+'.'+ext:raise ValueError('URL nao pertence ao armazenamento configurado.')
-        digest=hashlib.sha256(json.dumps({'account':account,'caption':caption,'media':media},sort_keys=True).encode()).hexdigest()
+        digest=hashlib.sha256(json.dumps({'account':account,'caption':caption,'media':media,'format':fmt},sort_keys=True).encode()).hexdigest()
         receipt={'containers':[],'publish_started':False}
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -86,14 +92,16 @@ class Publisher:
                 for m in media:
                     video=m['mime_type']=='video/mp4'
                     params={'video_url' if video else 'image_url':m['url']}
-                    if len(media)>1:
+                    if fmt=='carousel':
                         params['is_carousel_item']='true'
                         if video:params['media_type']='VIDEO'
+                    elif fmt=='story':
+                        params['media_type']='STORIES'
                     else:
                         params['caption']=caption
                         if video:params.update(media_type='REELS',share_to_feed='true')
                     children.append(create(params))
-                container=create({'media_type':'CAROUSEL','children':','.join(children),'caption':caption}) if len(media)>1 else children[0]
+                container=create({'media_type':'CAROUSEL','children':','.join(children),'caption':caption}) if fmt=='carousel' else children[0]
                 receipt['publish_started']=True;receipt['next_post']='media_publish';save('publishing')
                 result=self.transport(account+'/media_publish',{'creation_id':container})
                 post_id=result.get('id','')

@@ -1,8 +1,21 @@
 # Integrador n8n — publicações sociais
 
-Aplicativo local em Docker para preparar publicações, selecionar fotos/vídeos e confirmar o envio às contas configuradas. Inclui chat editorial com OpenAI, Instagram (foto, Reel e carrossel de até 10 itens), foto em Página Facebook, texto no X e revisão de comentários da comunidade.
+Aplicativo local em Docker para preparar publicações, selecionar fotos/vídeos e confirmar o envio às contas configuradas. Inclui chat editorial com OpenAI, Instagram (foto, Story, Reel e carrossel de até 10 itens), foto em Página Facebook, texto no X e revisão de comentários da comunidade.
 
-**Instalação nova:** siga as etapas 1 a 7. **Transferir a instalação atual com seus dados:** use a seção [Migrar para outro computador](#migrar-para-outro-computador).
+**Instalação nova:** siga as etapas 1 a 7, na ordem. **Transferir a instalação atual com seus dados:** use a seção [Migrar para outro computador](#migrar-para-outro-computador).
+
+Ao terminar, você terá os formulários de publicação e o chat acessíveis com seu login local. Para começar sem IA, use os formulários: não precisam de chave OpenAI. A chave é necessária para conversar com a IA ou gerar imagens.
+
+| Sequência da primeira instalação | O que fazer |
+| --- | --- |
+| Preparar | Instalar Docker/Compose, Git e Python; clonar o projeto |
+| Configurar | Gerar o `.env` e preencher as integrações desejadas |
+| Subir | Construir os containers e criar o proprietário em `localhost:5680` |
+| Instalar | Importar os publicadores, recarregar o editorial e instalar os formulários |
+| Conferir | Abrir o formulário e executar em **Simular** |
+| Publicar | Configurar HTTPS dos anexos, habilitar o envio e confirmar no formulário |
+
+Instalar os formulários e publicar suas páginas não envia posts. O modo **Publicar** com **CONFIRMO** autoriza o envio imediato do conteúdo preenchido.
 
 ## 1. Preparar o computador
 
@@ -111,20 +124,34 @@ As portas locais podem ser alteradas no `.env`. Ao mudar `N8N_PORT`, ajuste tamb
 python3 scripts/install_chatbot.py
 python3 scripts/install_image_agent.py
 python3 scripts/install_comment_workflows.py
+
+# Recarregar os IDs que os instaladores acabaram de gravar no .env
+docker compose up -d --no-deps --wait editorial
 ```
 
 Os instaladores registram os IDs da nova instância no `.env`. Eles publicam somente os subworkflows internos necessários; chatbot, monitor e revisão começam inativos. Não preencha esses campos com IDs de contas sociais.
 
-Importe também os quatro modelos manuais, se quiser usá-los pelo editor:
+Instale os formulários manuais (sem IA) para Instagram, Facebook e X:
 
 ```bash
-docker compose exec -T n8n n8n import:workflow --input=/opt/workflows/facebook-photo.json
-docker compose exec -T n8n n8n import:workflow --input=/opt/workflows/instagram-photo.json
-docker compose exec -T n8n n8n import:workflow --input=/opt/workflows/x-check-account.json
-docker compose exec -T n8n n8n import:workflow --input=/opt/workflows/x-text.json
+python3 scripts/install_manual_forms.py --publish
 ```
 
-Esses quatro comandos são para a primeira instalação; repeti-los pode criar cópias dos modelos. Também é possível usar **Import from File** no editor. Os modelos manuais entram inativos e em dry-run.
+O instalador substitui os modelos manuais antigos quando os encontra, registra seus IDs no `.env` e publica os formulários com login n8n. O modo inicial de cada formulário é **Simular**; para envio real, escolha **Publicar** e marque **CONFIRMO**. A flag `CHATBOT_PUBLISH_ENABLED` também protege esses envios.
+
+- [Formulário Instagram](http://localhost:5680/form/publicar-instagram): descrição, hashtags, menções, formato, fotos/vídeo, ordem e música.
+- [Formulário Facebook](http://localhost:5680/form/publicar-facebook): descrição, hashtags, menções e uma foto.
+- [Formulário X](http://localhost:5680/form/publicar-x): texto, hashtags e menções.
+
+Os formulários precisam dos publicadores importados pelos comandos anteriores. Não pule a recriação de `editorial`: ela carrega os IDs da nova instância.
+
+O verificador de conta X continua separado e somente consulta a conta:
+
+```bash
+docker compose exec -T n8n n8n import:workflow --input=/opt/workflows/x-check-account.json
+```
+
+Importe esse verificador apenas na primeira instalação para evitar cópias. Os JSON versionados dos formulários continuam inativos; `--publish` é a opção explícita que disponibiliza suas páginas. Se não quiser usar o chat, pode ir da etapa 4 diretamente ao manual dos formulários e às etapas 6 e 7.
 
 ## 5. Liberar o chat para usar o app
 
@@ -148,9 +175,46 @@ JPEG/PNG são normalizados para JPEG. MP4/MOV precisam de vídeo H.264 e áudio 
 
 Para importar uma pasta do host, configure `MEDIA_LIBRARY_HOST_PATH` no `.env` e recrie `editorial`. Depois envie `IMPORTAR: caminho relativo` ou um `file:///...` sozinho no chat. A biblioteca é montada somente para leitura. Em outro computador, ajuste o caminho para uma pasta que exista lá; caminhos de uma máquina não dão acesso aos arquivos de outra. Você pode simplesmente usar o botão de upload, sem configurar biblioteca.
 
+## Manual dos formulários: fotos, Stories, Reels e música
+
+Entre em <http://localhost:5680> e depois abra o formulário da rede desejada. Não precisa editar nodes, alterar JSON nem executar **Test workflow**: use as URLs `/form/publicar-instagram`, `/form/publicar-facebook` e `/form/publicar-x` acima.
+
+### Preencher e simular uma publicação
+
+1. Escreva o texto final em **Descrição / legenda**. Os formulários usam esse texto diretamente, sem geração por IA.
+2. Preencha **Hashtags** e **Menções / tags**, se quiser. Separe por espaços ou vírgulas; elas são acrescentadas ao texto. Menções são texto `@perfil`, não marcações de pessoas na foto.
+3. Em **Imagens ou vídeo**, selecione os arquivos do computador. Para uma foto já hospedada, pode usar a **URL HTTPS** em vez do upload; não preencha ambos.
+4. No Instagram, escolha o formato na tabela abaixo. Para Story, Reels e conversão, envie arquivos; a URL opcional atende foto no feed.
+5. Para reorganizar os arquivos, informe **Ordem dos arquivos**, por exemplo `2,1,3`. Em branco, mantém a ordem da seleção. A música fica fora dessa numeração.
+6. Mantenha **Modo: Simular** e clique em **Executar**. A página final informa o resultado; se houver conversão, o vídeo é montado localmente, sem chamada social ou OpenAI.
+
+| Formato Instagram | O que selecionar |
+| --- | --- |
+| **Automático** | Uma foto vira foto; um vídeo vira Reel; vários itens viram carrossel |
+| **Foto no feed** | Uma imagem JPEG/PNG ou URL HTTPS de foto |
+| **Story** | Uma imagem ou um vídeo; a imagem é convertida em vídeo vertical |
+| **Reels** | Um vídeo |
+| **Carrossel** | De 2 a 10 fotos/vídeos |
+| **Carrossel em vídeo (Reels)** | De 1 a 10 imagens para juntar em um Reel |
+| **Carrossel em vídeo (Story)** | De 1 a 10 imagens para juntar em um Story |
+
+**Stories exigem conta Instagram Business na modalidade usada por este projeto.** A legenda, hashtags e menções do formulário não viram texto ou stickers sobre o Story: inclua o texto na própria mídia antes de enviar.
+
+### Transformar imagens em vídeo e escolher música
+
+1. Selecione as imagens e escolha **Carrossel em vídeo (Reels)** ou **Carrossel em vídeo (Story)**.
+2. Defina a ordem e os **Segundos por imagem**: de 1 a 30, com padrão 5. A soma deve ficar de 3 a 900 segundos para Reel ou de 3 a 60 segundos para Story.
+3. Em **Áudio**, escolha **Manter áudio original**, **Sem som** ou **Música enviada**. Sequências de fotos não têm áudio original.
+4. Para usar uma trilha, escolha **Música enviada** e anexe um arquivo MP3, WAV, M4A, AAC ou OGG que tenha direito de usar. Defina **Volume da música**, de 0 a 100, e **Começar música em**, em segundos.
+5. Execute primeiro em **Simular**. Para postar, siga a etapa 7 e preencha uma nova submissão em **Publicar**, com **CONFIRMO** marcado.
+
+A música enviada substitui o áudio original; se for menor que o vídeo, é repetida para preencher a duração. O catálogo musical do Instagram não está conectado. Para adicionar música a uma sequência de fotos, escolha a conversão para vídeo, em vez do carrossel estático.
+
+Limites locais: 10 mídias mais uma faixa de áudio; 100 MB por arquivo. Vídeos enviados devem usar H.264 e áudio AAC quando presente. A montagem gera MP4 vertical em 720×1280, preservando as imagens com margens, sem recortar; o resultado deve ter até 100 MB. Veja [formatos e música](docs/media-formats.md) para os detalhes. Essas opções de formato e música pertencem ao formulário Instagram; Facebook continua com uma foto e X com texto.
+
 ## 6. Disponibilizar fotos e vídeos por HTTPS
 
-O Instagram precisa buscar os anexos por uma URL HTTPS pública. O seletor e o dry-run funcionam sem isso, mas o envio real de anexos precisa dessa configuração.
+A Meta precisa buscar os anexos e os vídeos montados por uma URL HTTPS pública. O seletor, a montagem local e a simulação do Instagram funcionam sem isso, mas o envio real de anexos precisa dessa configuração. No formulário Facebook, o upload também precisa dessa base configurada; alternativamente, forneça uma URL HTTPS de foto já hospedada.
 
 ### Opção A: ngrok
 
@@ -182,7 +246,11 @@ docker compose config --quiet
 docker compose up -d --no-deps --wait editorial instagram-media
 ```
 
-Peça uma nova `PREVIA`, confira mídias, ordem, legenda e destino e envie `CONFIRMAR` com o código exibido. A IA não aprova nem publica sozinha. Alterações invalidam a confirmação anterior. `restart` não recarrega o `.env`; use `up -d` para aplicar variáveis.
+**Pelo formulário:** confira rede, formato, texto, arquivos, ordem e música. Escolha **Modo: Publicar**, marque **CONFIRMO** e clique em **Executar**. A submissão autoriza o envio imediato à conta configurada; a página final informa o resultado.
+
+**Pelo chat:** peça uma nova `PREVIA`, confira as mídias, a ordem, a legenda e o destino e envie `CONFIRMAR` com o código exibido. Para escolher Story ou montar vídeo com música, use o formulário Instagram.
+
+A IA não aprova nem publica sozinha. Alterações no rascunho invalidam a confirmação anterior. `restart` não recarrega o `.env`; use `up -d` para aplicar variáveis.
 
 Comentários têm controles separados. Habilitar o chatbot não habilita respostas automáticas: mantenha os controles de comentários desligados até seguir o [guia de comentários](docs/comment-workflows.md).
 
@@ -222,9 +290,27 @@ Se o chatbot/adaptador de mídia mudou e você quer instalar a definição atual
 
 ```bash
 python3 scripts/install_media_support.py --publish-chat
+python3 scripts/install_manual_forms.py --publish
 ```
 
 Instaladores substituem as definições correspondentes, incluindo alterações feitas pelo editor; use-os deliberadamente. Uma atualização da versão n8n exige leitura de release notes, backup e validação, conforme [operação](docs/operations.md).
+
+## Problemas comuns na primeira instalação
+
+| Sintoma | O que conferir |
+| --- | --- |
+| Não aparecem workflows | Execute os instaladores da etapa 4; montar a pasta não importa os JSON |
+| Formulário retorna 404 | Execute `python3 scripts/install_manual_forms.py --publish` e use a URL `/form/`, não `/form-test/` |
+| Formulário pede login | Entre no n8n com o proprietário criado na etapa 3 |
+| Só simula ou diz que envio está desabilitado | Faça a etapa 7, reaplique `editorial` e selecione Publicar + CONFIRMO |
+| Diz que falta um publicador | Recrie `editorial` depois dos instaladores para recarregar os IDs do `.env` |
+| Anexo sem URL pública | Configure o HTTPS da etapa 6; `file://` e endereços Docker não são acessíveis pela Meta |
+| Pasta local não encontrada | Ajuste `MEDIA_LIBRARY_HOST_PATH` para este computador ou use upload |
+| Música não foi aceita | Escolha Música enviada, envie uma faixa e use formato de vídeo, Story ou conversão |
+| Story não mostra a legenda | O texto precisa estar na própria mídia; a API não sobrepõe o texto do formulário |
+| Timeout/resultado incerto | Confira a plataforma e a execução; não repita o POST automaticamente |
+
+Para diagnosticar localmente, use `docker compose ps` e os logs da seção de rotina. Não compartilhe tokens, o conteúdo do `.env` nem logs sem revisão.
 
 ## Migrar para outro computador
 
@@ -315,12 +401,14 @@ python3 scripts/build_workflows.py
 python3 scripts/build_chat_workflows.py
 python3 scripts/build_image_workflow.py
 python3 scripts/build_comment_workflows.py
+python3 scripts/build_manual_forms.py
 ```
 
 Gerar arquivos não atualiza a instância n8n automaticamente. Exporte alterações sem credenciais e sem pinData. Não execute `smoke_chatbot.py` sobre chatbot publicado/em uso, nem smoke de comentários com leitura/envio reais habilitados.
 
 ## Documentação e limites
 
+- [Formulários: formatos, conversão e música](docs/media-formats.md)
 - [Chatbot, anexos e confirmação](docs/chatbot.md)
 - [Configurar Meta](docs/meta-setup.md) e [X](docs/x-setup.md)
 - [Subagente de geração de imagem](docs/image-agent.md)
@@ -331,4 +419,4 @@ Gerar arquivos não atualiza a instância n8n automaticamente. Exporte alteraç�
 - [Regras do projeto](AGENTS.md) e [skill de publicação](skills/n8n-social-publishing/SKILL.md)
 - [Fontes e licenciamento](docs/sources-and-license.md)
 
-Agendamento editorial, reconciliação automática, stories e conectores YouTube/TikTok continuam fora do escopo implementado. No X, upload de mídia e renovação OAuth não estão implementados. O sistema registra tentativas, mas não promete envio único na API remota.
+Agendamento editorial, reconciliação automática e conectores YouTube/TikTok continuam fora do escopo implementado. No X, upload de mídia e renovação OAuth não estão implementados. O sistema registra tentativas, mas não promete envio único na API remota.

@@ -28,9 +28,9 @@ A aprovacao do app, niveis de acesso e eventual verificacao comercial precisam s
 
 ## Executar
 
-Importe os JSON pelo editor. Em **Conteudo**, informe somente `caption`, `image_url` e as flags de simulacao/aprovacao. IDs e versao Graph sao lidos do `.env`. Use uma imagem JPEG compativel, em URL HTTPS publica acessivel sem cookies; confirme requisitos atuais de tamanho/proporcao. A URL example.com e apenas demonstrativa.
+Os arquivos `facebook-photo.json` e `instagram-photo.json` sao formularios. Instale com `python3 scripts/install_manual_forms.py --publish` e abra, apos entrar no n8n, `/form/publicar-facebook` ou `/form/publicar-instagram` na porta local configurada. Preencha descricao, hashtags, mencoes e midias. Instagram aceita foto, Reel e carrossel; Facebook aceita uma foto. Os mesmos publicadores internos continuam atendendo o chatbot.
 
-Execute primeiro com `dry_run: true`: deve sair em **Previa sem publicar**, sem chamada HTTP. Depois de autorizar o conteudo e destino reais, mude para `approved: true` e `dry_run: false` e execute manualmente. A flag e uma protecao do modelo local, nao um sistema de aprovacao com identidade/auditoria.
+Use **Simular** primeiro. Para enviar o conteudo final a conta configurada, escolha **Publicar** e marque **CONFIRMO**, com `CHATBOT_PUBLISH_ENABLED=true` no `.env`. Anexos precisam de `MEDIA_PUBLIC_BASE_URL` HTTPS acessivel pela Meta; a opcao de URL permite fornecer uma foto ja hospedada. Apos o envio, a pagina retorna o resultado; nao repita uma tentativa incerta.
 
 Facebook: `POST /{page-id}/photos` com `url`, `caption` e `published=true`. Guarde a resposta e o identificador remoto.
 

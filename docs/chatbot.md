@@ -137,3 +137,7 @@ O instalador atualiza somente o chatbot e o publicador Instagram; preserva o est
 Referencia: [publicacao de conteudo Instagram pela Meta](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/content-publishing/). A consulta automatizada a essa pagina retornou limitacao de acesso; o envio real deve ser validado com as permissoes da conta e a versao Graph configurada.
 
 Validacao desta extensao: testes comportamentais locais, upload binario real pelo n8n, chamada ao adaptador Instagram em dry-run, painel HTTP e arquivo sintetico por HTTPS passaram. O tunel recusou rotas de chat/API. Nenhuma publicacao social ou chamada paga OpenAI foi feita nessa validacao.
+
+## Formatos nos formularios manuais
+
+O formulario Instagram permite escolher Story, Reels e Carrossel, converter fotos em video e incorporar uma trilha enviada. Essas opcoes sao deterministicas e separadas do modelo. Veja [formatos e musica](media-formats.md). No chat, o comportamento automatico anterior continua: uma foto, um Reel ou carrossel conforme os anexos; para escolher Stories e montar videos use o formulario.
