@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "opt_out",
+      "action": "opt_out",
+      "patterns": [
+        "pare de responder",
+        "nao (me )?respond(a|er)",
+        "\\bstop\\b",
+        "nao quero (mais )?respostas"
+      ],
+      "replies": []
+    },
+    {
+      "id": "spoilers",
+      "action": "review",
+      "patterns": [
+        "spoiler",
+        "no final",
+        "morre no",
+        "assassino e"
+      ],
+      "replies": [
+        "Vamos manter a conversa sem spoilers para que todo mundo possa aproveitar a leitura."
+      ]
+    },
+    {
+      "id": "account_support",
+      "action": "review",
+      "patterns": [
+        "senha",
+        "login",
+        "cobranca",
+        "paguei",
+        "nao recebi",
+        "reembolso",
+        "meu pedido",
+        "meu e.?mail",
+        "meus dados",
+        "\\b[\\w.+-]+@[\\w.-]+\\.[a-z]{2,}\\b",
+        "\\b\\d{8,}\\b"
+      ],
+      "replies": [
+        "Vamos verificar sua dúvida com a equipe. Evite publicar dados pessoais nos comentários."
+      ]
+    },
+    {
+      "id": "rights_downloads",
+      "action": "review",
+      "patterns": [
+        "\\bpdf\\b",
+        "pirata",
+        "download",
+        "baixar",
+        "direitos autorais",
+        "plagio"
+      ],
+      "replies": [
+        "Precisamos verificar essa informação com a equipe antes de orientar você."
+      ]
+    },
+    {
+      "id": "commercial_or_catalog",
+      "action": "review",
+      "patterns": [
+        "quanto custa",
+        "preco",
+        "gratis",
+        "gratuito",
+        "frete",
+        "comprar",
+        "assinatura",
+        "disponivel",
+        "tem (o livro|esse livro|este livro)",
+        "parceria"
+      ],
+      "replies": [
+        "Vamos confirmar essa informação com a equipe para responder direitinho."
+      ]
+    },
+    {
+      "id": "criticism",
+      "action": "review",
+      "patterns": [
+        "nao gostei",
+        "pessimo",
+        "horrivel",
+        "decepcion",
+        "reclam",
+        "golpe",
+        "odio",
+        "ameaca",
+        "ofens"
+      ],
+      "replies": [
+        "Obrigado por compartilhar seu ponto de vista. Vamos olhar seu comentário com atenção."
+      ]
+    },
+    {
+      "id": "suspicious_or_instruction",
+      "action": "review",
+      "patterns": [
+        "https?://",
+        "ignore (as|todas|suas)",
+        "system prompt",
+        "api.?key",
+        "token",
+        "instruc",
+        "compre seguidores",
+        "ganhe dinheiro"
+      ],
+      "replies": []
+    },
+    {
+      "id": "chapter_schedule",
+      "action": "review",
+      "patterns": [
+        "quando (sai|chega|publica)",
+        "proximo capitulo",
+        "data do capitulo",
+        "cronograma"
+      ],
+      "replies": [
+        "Vamos confirmar essa informação com quem escreve. Não queremos prometer uma data sem confirmação."
+      ]
+    },
+    {
+      "id": "publish_story",
+      "action": "auto",
+      "patterns": [
+        "publicar (uma|minha|a minha) historia",
+        "publicar (um|meu|o meu) livro",
+        "sou (autor|autora)",
+        "quero publicar"
+      ],
+      "replies": [
+        "No {community_name}, o caminho começa em “Publicar uma história”. Acesse o site pelo link na bio e confira as orientações para sua conta."
+      ]
+    },
+    {
+      "id": "community_features",
+      "action": "auto",
+      "patterns": [
+        "como (avaliar|comentar|guardar|salvar)",
+        "minha biblioteca",
+        "preciso (de )?conta"
+      ],
+      "replies": [
+        "Com uma conta no {community_name}, você pode guardar livros, avaliar, comentar e publicar histórias. O site está no link da bio."
+      ]
+    },
+    {
+      "id": "chapter_reading",
+      "action": "auto",
+      "patterns": [
+        "como (ler|leio)",
+        "leitura online",
+        "ler os capitulos"
+      ],
+      "replies": [
+        "No {community_name}, você acompanha as histórias capítulo a capítulo. Acesse pelo link na bio e escolha uma história para conhecer."
+      ]
+    },
+    {
+      "id": "bio_access",
+      "action": "auto",
+      "patterns": [
+        "\\blink\\b",
+        "\\bsite\\b",
+        "onde (acesso|encontro|vejo|posso ler)",
+        "como (acessar|entrar)",
+        "na bio"
+      ],
+      "replies": [
+        "Você encontra o {community_name} pelo link na bio. Por lá, as histórias chegam capítulo a capítulo.",
+        "O caminho para o {community_name} está no link da bio. Puxa uma cadeira e venha conhecer as histórias!"
+      ]
+    },
+    {
+      "id": "reading_recommendation",
+      "action": "auto",
+      "patterns": [
+        "recomenda",
+        "indica",
+        "por onde comecar",
+        "o que (ler|leio)",
+        "qual (livro|genero)"
+      ],
+      "replies": [
+        "Que tipo de leitura você está procurando? Conta um gênero ou um livro de que gostou para começarmos a conversa.",
+        "Vamos conversar sobre leituras! Você prefere algum gênero ou tem um livro favorito?"
+      ]
+    },
+    {
+      "id": "reading_conversation",
+      "action": "auto",
+      "patterns": [
+        "estou lendo",
+        "to lendo",
+        "comecei a ler",
+        "terminei (de ler|o livro)",
+        "minha leitura"
+      ],
+      "replies": [
+        "Que bom ter sua leitura na conversa! Como está sendo a experiência, sem spoilers?",
+        "Puxa uma cadeira e conta pra gente: o que chamou sua atenção nessa leitura, sem spoilers?"
+      ]
+    },
+    {
+      "id": "thanks",
+      "action": "auto",
+      "patterns": [
+        "obrigad",
+        "valeu",
+        "agradec"
+      ],
+      "replies": [
+        "A gente que agradece por fazer parte dessa conversa sobre livros!",
+        "Obrigado pelo carinho! É muito bom ter você na nossa comunidade de leitores."
+      ]
+    },
+    {
+      "id": "positive_engagement",
+      "action": "auto",
+      "patterns": [
+        "adorei",
+        "amei",
+        "gostei",
+        "incrivel",
+        "maravilh",
+        "ansios",
+        "que lindo"
+      ],
+      "replies": [
+        "Que bom compartilhar esse entusiasmo por livros com você!",
+        "Adoramos ver esse carinho pela leitura. Obrigado por participar!"
+      ]
+    },
+    {
+      "id": "greeting",
+      "action": "auto",
+      "patterns": [
+        "^(oi|ola|bom dia|boa tarde|boa noite)[ !.,]*$"
+      ],
+      "replies": [
+        "Olá! Boas-vindas à nossa comunidade de livros. Qual leitura está acompanhando você hoje?"
+      ]
+    }
+  ],
+  "fallback": {
+    "id": "needs_context",
+    "action": "review",
+    "reply": ""
+  }
+}

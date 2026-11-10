@@ -1,0 +1,364 @@
+{
+  "name": "Editorial - publicador instagram",
+  "active": false,
+  "nodes": [
+    {
+      "id": "entrada-editorial",
+      "name": "Entrada editorial",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "preparar-publicacao",
+      "name": "Preparar publicacao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const p=$input.first().json.payload; if (!p || typeof p !== 'object') throw new Error('Payload editorial ausente'); return [{json:{platform: 'instagram',dry_run:p.dry_run,approved:p.approved,caption: p.caption, image_url: p.image_url}}];"
+      }
+    },
+    {
+      "id": "validar",
+      "name": "Validar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const p = $input.first().json;\nif (typeof p.dry_run !== 'boolean') throw new Error('dry_run deve ser booleano');\nif (!['facebook', 'instagram'].includes(p.platform)) throw new Error('Plataforma invalida');\nif (typeof p.caption !== 'string' || !p.caption.trim()) throw new Error('Legenda obrigatoria');\nif (p.platform === 'instagram' && p.caption.length > 2200) throw new Error('Legenda Instagram excede 2200 caracteres');\nif (typeof p.image_url !== 'string' || !/^https:\\/\\/[^\\s/]+\\/\\S+$/.test(p.image_url)) throw new Error('Informe URL HTTPS publica da imagem');\nif (!p.dry_run) {\n  if (p.approved !== true) throw new Error('Aprovacao explicita necessaria');\n  const account = p.platform === 'facebook' ? $env.META_FACEBOOK_PAGE_ID : $env.META_INSTAGRAM_ACCOUNT_ID;\n  const token = p.platform === 'facebook' ? $env.META_FACEBOOK_PAGE_ACCESS_TOKEN : $env.META_INSTAGRAM_ACCESS_TOKEN;\n  if (!/^\\d+$/.test(account || '')) throw new Error('Configure o ID Meta no .env');\n  if (!/^v\\d+\\.\\d+$/.test($env.META_GRAPH_VERSION || '')) throw new Error('Configure META_GRAPH_VERSION no .env');\n  if (!token || !token.trim()) throw new Error('Configure o access token Meta no .env');\n  if (p.image_url.includes('example.com')) throw new Error('Substitua a imagem de exemplo');\n}\nreturn [{json: p}];"
+      }
+    },
+    {
+      "id": "simular",
+      "name": "Simular",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dry-run",
+              "leftValue": "={{ $json.dry_run }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "previa-sem-publicar",
+      "name": "Previa sem publicar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        -140
+      ],
+      "parameters": {
+        "jsCode": "return [{json: {status: 'dry_run', content: $input.first().json, message: 'Nenhuma chamada externa realizada'}}];"
+      }
+    },
+    {
+      "id": "criar-container-instagram",
+      "name": "Criar container Instagram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/' + $env.META_GRAPH_VERSION + '/' + $env.META_INSTAGRAM_ACCOUNT_ID + '/media' }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.META_INSTAGRAM_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "image_url",
+              "value": "={{ $('Validar').first().json.image_url }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $('Validar').first().json.caption }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": false
+    },
+    {
+      "id": "esperar-processamento",
+      "name": "Esperar processamento",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        120
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "consultar-container",
+      "name": "Consultar container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        120
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://graph.facebook.com/' + $env.META_GRAPH_VERSION + '/' + $('Criar container Instagram').first().json.id }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.META_INSTAGRAM_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "status_code,status"
+            }
+          ]
+        }
+      },
+      "retryOnFail": false
+    },
+    {
+      "id": "exigir-finished",
+      "name": "Exigir FINISHED",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const status = $input.first().json; const id = $('Criar container Instagram').first().json.id; if (status.status_code !== 'FINISHED') throw new Error('Container ' + id + ': ' + status.status_code + '. Consulte este ID e reconcilie antes de repetir; nao recrie automaticamente.'); return [{json: {creation_id: id}}];"
+      }
+    },
+    {
+      "id": "publicar-instagram",
+      "name": "Publicar Instagram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/' + $env.META_GRAPH_VERSION + '/' + $env.META_INSTAGRAM_ACCOUNT_ID + '/media_publish' }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.META_INSTAGRAM_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $json.creation_id }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": false
+    },
+    {
+      "id": "resultado-editorial",
+      "name": "Resultado editorial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const r=$input.first().json;const id=r.id;if(r.error || r.errors?.length || typeof id !== 'string' || !/^[0-9_]+$/.test(id)) throw new Error('Resultado remoto ambiguo; reconcilie antes de repetir');return [{json:{status:'published',platform:'instagram',post_id:id}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Validar": {
+      "main": [
+        [
+          {
+            "node": "Simular",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simular": {
+      "main": [
+        [
+          {
+            "node": "Previa sem publicar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Criar container Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar container Instagram": {
+      "main": [
+        [
+          {
+            "node": "Esperar processamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar processamento": {
+      "main": [
+        [
+          {
+            "node": "Consultar container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar container": {
+      "main": [
+        [
+          {
+            "node": "Exigir FINISHED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exigir FINISHED": {
+      "main": [
+        [
+          {
+            "node": "Publicar Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada editorial": {
+      "main": [
+        [
+          {
+            "node": "Preparar publicacao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar publicacao": {
+      "main": [
+        [
+          {
+            "node": "Validar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publicar Instagram": {
+      "main": [
+        [
+          {
+            "node": "Resultado editorial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Cuiaba",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": []
+}

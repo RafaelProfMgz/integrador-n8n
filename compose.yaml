@@ -1,0 +1,135 @@
+name: n8n-social
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: n8n
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Execute python3 scripts/setup.py}
+      TZ: ${TZ:-America/Cuiaba}
+    volumes:
+      - postgres17_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U n8n -d n8n']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION:?Execute python3 scripts/setup.py}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${N8N_PORT:-5680}:5678'
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: '5432'
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?Senha obrigatoria}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Chave obrigatoria}
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: '5678'
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL:-http://localhost:5680/}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5680/}
+      N8N_PROXY_HOPS: ${N8N_PROXY_HOPS:-0}
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      GENERIC_TIMEZONE: ${TZ:-America/Cuiaba}
+      TZ: ${TZ:-America/Cuiaba}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
+      X_USER_ID: ${X_USER_ID:-}
+      X_OAUTH2_ACCESS_TOKEN: ${X_OAUTH2_ACCESS_TOKEN:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-}
+      META_FACEBOOK_PAGE_ID: ${META_FACEBOOK_PAGE_ID:-}
+      META_FACEBOOK_PAGE_ACCESS_TOKEN: ${META_FACEBOOK_PAGE_ACCESS_TOKEN:-}
+      META_INSTAGRAM_ACCOUNT_ID: ${META_INSTAGRAM_ACCOUNT_ID:-}
+      META_INSTAGRAM_ACCESS_TOKEN: ${META_INSTAGRAM_ACCESS_TOKEN:-}
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      N8N_PERSONALIZATION_ENABLED: 'false'
+      N8N_COMMUNITY_PACKAGES_ENABLED: 'false'
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: '168'
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      N8N_DEFAULT_BINARY_DATA_MODE: filesystem
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/opt/workflows:ro
+    healthcheck:
+      test: [CMD, node, -e, "require('http').get('http://127.0.0.1:5678/healthz/readiness',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 10
+    logging: *logging
+  editorial:
+    build: ./services/editorial
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-1.5}
+      IMAGE_PUBLIC_BASE_URL: ${IMAGE_PUBLIC_BASE_URL:-}
+      N8N_IMAGE_AGENT_WORKFLOW_ID: ${N8N_IMAGE_AGENT_WORKFLOW_ID:-}
+      CHATBOT_PUBLISH_ENABLED: ${CHATBOT_PUBLISH_ENABLED:-false}
+      N8N_PUBLISH_FACEBOOK_WORKFLOW_ID: ${N8N_PUBLISH_FACEBOOK_WORKFLOW_ID:-}
+      N8N_PUBLISH_INSTAGRAM_WORKFLOW_ID: ${N8N_PUBLISH_INSTAGRAM_WORKFLOW_ID:-}
+      N8N_PUBLISH_X_WORKFLOW_ID: ${N8N_PUBLISH_X_WORKFLOW_ID:-}
+    volumes:
+      - editorial_data:/data
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+  community:
+    build: ./services/editorial
+    command: [python, /app/community.py]
+    restart: unless-stopped
+    environment:
+      COMMUNITY_NAME: ${COMMUNITY_NAME:-Comunidade de livros}
+      COMMUNITY_SITE_URL: ${COMMUNITY_SITE_URL:-}
+      COMMENTS_READ_ENABLED: ${COMMENTS_READ_ENABLED:-false}
+      COMMENTS_SEND_ENABLED: ${COMMENTS_SEND_ENABLED:-false}
+      COMMENTS_MODE: ${COMMENTS_MODE:-review}
+      COMMENTS_X_REPLY_ENABLED: ${COMMENTS_X_REPLY_ENABLED:-false}
+      COMMENTS_PLATFORMS: ${COMMENTS_PLATFORMS:-instagram}
+      COMMENTS_POST_DAYS: ${COMMENTS_POST_DAYS:-30}
+      COMMENTS_LOOKBACK_DAYS: ${COMMENTS_LOOKBACK_DAYS:-7}
+      COMMENTS_MAX_POSTS: ${COMMENTS_MAX_POSTS:-10}
+      COMMENTS_MAX_COMMENTS: ${COMMENTS_MAX_COMMENTS:-20}
+      COMMENTS_RUN_REPLY_LIMIT: ${COMMENTS_RUN_REPLY_LIMIT:-3}
+      COMMENTS_DAILY_LIMIT: ${COMMENTS_DAILY_LIMIT:-20}
+      COMMENTS_AUTHOR_DAILY_LIMIT: ${COMMENTS_AUTHOR_DAILY_LIMIT:-2}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-}
+      META_FACEBOOK_PAGE_ID: ${META_FACEBOOK_PAGE_ID:-}
+      META_FACEBOOK_PAGE_ACCESS_TOKEN: ${META_FACEBOOK_PAGE_ACCESS_TOKEN:-}
+      META_INSTAGRAM_ACCOUNT_ID: ${META_INSTAGRAM_ACCOUNT_ID:-}
+      META_INSTAGRAM_ACCESS_TOKEN: ${META_INSTAGRAM_ACCESS_TOKEN:-}
+      X_USER_ID: ${X_USER_ID:-}
+      X_OAUTH2_ACCESS_TOKEN: ${X_OAUTH2_ACCESS_TOKEN:-}
+    volumes:
+      - community_data:/data
+      - ./response-skills:/app/response-skills:ro
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+volumes:
+  community_data:
+  editorial_data:
+  postgres17_data:
+  n8n_data:

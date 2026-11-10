@@ -1,0 +1,278 @@
+{
+  "name": "X - publicar texto manual (dry-run)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "inicio-manual",
+      "name": "Inicio manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "conteudo",
+      "name": "Conteudo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{json: {\"operation\": \"publish_text\", \"dry_run\": true, \"approved\": false, \"text\": \"Minha primeira publicacao de teste no X\"}}];"
+      }
+    },
+    {
+      "id": "validar",
+      "name": "Validar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const p = $input.first().json;\nif (typeof p.dry_run !== 'boolean') throw new Error('dry_run deve ser booleano');\nconst check = p.operation === 'check_account';\nif (!check && p.operation !== 'publish_text') throw new Error('Operacao X invalida');\nlet text;\nlet weight = 0;\nif (!check) {\n  if (typeof p.text !== 'string' || !p.text.trim()) throw new Error('Texto obrigatorio');\n  text = p.text.normalize('NFC');\n  // Estimativa local baseada nos pesos twitter-text v3.\n  // Sem parser completo de URLs/emojis; a API continua sendo a validacao final.\n  for (const char of text) {\n    const cp = char.codePointAt(0);\n    if (cp === 0xFFFE || cp === 0xFFFF || cp === 0xFEFF || (cp >= 0xD800 && cp <= 0xDFFF)) throw new Error('Texto contem caractere invalido');\n    weight += (cp <= 0x10FF || (cp >= 0x2000 && cp <= 0x200D) || (cp >= 0x2010 && cp <= 0x201F) || (cp >= 0x2032 && cp <= 0x2037)) ? 1 : 2;\n  }\n  if (weight > 280) throw new Error('Texto excede a estimativa local de 280; reduza o texto ou a URL');\n}\nif (!p.dry_run) {\n  if (!check && p.approved !== true) throw new Error('Aprovacao explicita necessaria');\n  if (!($env.X_OAUTH2_ACCESS_TOKEN || '').trim()) throw new Error('Configure X_OAUTH2_ACCESS_TOKEN no .env (token de usuario)');\n  if (!check && !/^\\d+$/.test($env.X_USER_ID || '')) throw new Error('Configure X_USER_ID numerico no .env');\n}\n// Retorne apenas campos editoriais; nunca copie ambiente/tokens para a saida.\nreturn [{json: {platform: 'x', operation: p.operation, dry_run: p.dry_run,\n  approved: p.approved === true, ...(check ? {} : {text, estimated_weight: weight})}}];"
+      }
+    },
+    {
+      "id": "simular",
+      "name": "Simular",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dry-run",
+              "leftValue": "={{ $json.dry_run }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "previa-sem-publicar",
+      "name": "Previa sem publicar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        -140
+      ],
+      "parameters": {
+        "jsCode": "return [{json: {status: 'dry_run', content: $input.first().json, message: 'Nenhuma chamada externa realizada'}}];"
+      }
+    },
+    {
+      "id": "consultar-conta-x",
+      "name": "Consultar conta X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.x.com/2/users/me",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.X_OAUTH2_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      },
+      "retryOnFail": false
+    },
+    {
+      "id": "conferir-conta-x",
+      "name": "Conferir conta X",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst user = result.data;\nif (result.errors?.length || !user || typeof user.id !== 'string' || !/^\\d+$/.test(user.id)) throw new Error('Resposta X sem conta valida');\nconst expected = $env.X_USER_ID || '';\nif (expected && user.id !== expected) throw new Error('Conta autenticada diverge de X_USER_ID; publicacao bloqueada');\nreturn [{json: {status: expected ? 'account_verified' : 'account_identified', user_id: user.id, username: user.username}}];"
+      }
+    },
+    {
+      "id": "publicar-texto-x",
+      "name": "Publicar texto X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.x.com/2/tweets",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.X_OAUTH2_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({text: $('Validar').first().json.text}) }}"
+      },
+      "retryOnFail": false
+    },
+    {
+      "id": "resultado-x",
+      "name": "Resultado X",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nif (result.errors?.length || !result.data || typeof result.data.id !== 'string' || !/^\\d+$/.test(result.data.id)) throw new Error('Resposta de publicacao X ambigua; reconcilie na plataforma antes de repetir');\nreturn [{json: {status: 'published', platform: 'x', post_id: result.data.id,\n  url: 'https://x.com/i/web/status/' + result.data.id}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Inicio manual": {
+      "main": [
+        [
+          {
+            "node": "Conteudo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conteudo": {
+      "main": [
+        [
+          {
+            "node": "Validar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar": {
+      "main": [
+        [
+          {
+            "node": "Simular",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simular": {
+      "main": [
+        [
+          {
+            "node": "Previa sem publicar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consultar conta X",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar conta X": {
+      "main": [
+        [
+          {
+            "node": "Conferir conta X",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conferir conta X": {
+      "main": [
+        [
+          {
+            "node": "Publicar texto X",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publicar texto X": {
+      "main": [
+        [
+          {
+            "node": "Resultado X",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Cuiaba",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": []
+}

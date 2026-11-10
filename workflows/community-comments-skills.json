@@ -1,0 +1,60 @@
+{
+  "name": "Subagente - skills de resposta comunidade de livros",
+  "active": false,
+  "nodes": [
+    {
+      "id": "comentario-recebido",
+      "name": "Comentario recebido",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "aplicar-skill-de-resposta",
+      "name": "Aplicar skill de resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://community:8080/draft",
+        "options": {
+          "timeout": 300000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({text:$json.text,comment_id:$json.comment_id || ''}) }}"
+      },
+      "retryOnFail": false
+    }
+  ],
+  "connections": {
+    "Comentario recebido": {
+      "main": [
+        [
+          {
+            "node": "Aplicar skill de resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Cuiaba",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,84 @@
+{
+  "name": "Comunidade livros - aprovar resposta",
+  "active": false,
+  "nodes": [
+    {
+      "id": "aprovacao-recebida",
+      "name": "Aprovacao recebida",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "validar-aprovacao",
+      "name": "Validar aprovacao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const p=$input.first().json;if(typeof p.record_id!=='string'||typeof p.approval_token!=='string')throw new Error('Informe record_id e approval_token vistos na fila de revisao');return [{json:{record_id:p.record_id,approval_token:p.approval_token}}];"
+      }
+    },
+    {
+      "id": "enviar-resposta-aprovada",
+      "name": "Enviar resposta aprovada",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://community:8080/approve",
+        "options": {
+          "timeout": 300000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": false
+    }
+  ],
+  "connections": {
+    "Aprovacao recebida": {
+      "main": [
+        [
+          {
+            "node": "Validar aprovacao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar aprovacao": {
+      "main": [
+        [
+          {
+            "node": "Enviar resposta aprovada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Cuiaba",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": []
+}

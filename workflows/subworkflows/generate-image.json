@@ -1,0 +1,231 @@
+{
+  "name": "Subagente - gerar imagem para publicacao",
+  "active": false,
+  "nodes": [
+    {
+      "id": "descricao-recebida",
+      "name": "Descricao recebida",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "preparar-descricao",
+      "name": "Preparar descricao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const input=$input.first().json;const p=input.payload ?? input;\nif(typeof p.description!=='string'||!p.description.trim())throw new Error('Informe description');\nconst dry=p.dry_run ?? true;if(typeof dry!=='boolean')throw new Error('dry_run deve ser booleano');\nreturn [{json:{description:p.description,dry_run:dry,request_id:p.request_id ?? ('image-request-'+$execution.id),size:p.size ?? '1024x1024',quality:p.quality ?? 'medium'}}];"
+      }
+    },
+    {
+      "id": "gerar-imagem",
+      "name": "Gerar imagem",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://editorial:8080/images/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "retryOnFail": false
+    },
+    {
+      "id": "verificar-geracao",
+      "name": "Verificar geracao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r=$input.first().json;if(r.status==='dry_run')return [{json:r}];if(r.status!=='image_generated'||!/^[a-f0-9]{32}$/.test(r.asset_id))throw new Error('Geracao nao concluida; verifique chave, modelo e registro da tentativa antes de repetir');return [{json:r}];"
+      }
+    },
+    {
+      "id": "tem-arquivo",
+      "name": "Tem arquivo",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "image-file",
+              "leftValue": "={{ $json.status === 'image_generated' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "baixar-jpeg",
+      "name": "Baixar JPEG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'http://editorial:8080/images/files/' + $json.asset_id + '.jpg' }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "retornar-imagem",
+      "name": "Retornar imagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{json:$('Verificar geracao').first().json,binary:$input.first().binary}];"
+      }
+    },
+    {
+      "id": "retornar-simulacao",
+      "name": "Retornar simulacao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        220
+      ],
+      "parameters": {
+        "jsCode": "return $input.all();"
+      }
+    }
+  ],
+  "connections": {
+    "Descricao recebida": {
+      "main": [
+        [
+          {
+            "node": "Preparar descricao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar descricao": {
+      "main": [
+        [
+          {
+            "node": "Gerar imagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar imagem": {
+      "main": [
+        [
+          {
+            "node": "Verificar geracao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar geracao": {
+      "main": [
+        [
+          {
+            "node": "Tem arquivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem arquivo": {
+      "main": [
+        [
+          {
+            "node": "Baixar JPEG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar simulacao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar JPEG": {
+      "main": [
+        [
+          {
+            "node": "Retornar imagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Cuiaba",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": []
+}

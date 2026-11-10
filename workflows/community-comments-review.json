@@ -1,0 +1,55 @@
+{
+  "name": "Comunidade livros - revisar respostas",
+  "active": false,
+  "nodes": [
+    {
+      "id": "consultar-revisao",
+      "name": "Consultar revisao",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "fila-de-respostas",
+      "name": "Fila de respostas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://community:8080/review",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "retryOnFail": false
+    }
+  ],
+  "connections": {
+    "Consultar revisao": {
+      "main": [
+        [
+          {
+            "node": "Fila de respostas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Cuiaba",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": []
+}

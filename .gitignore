@@ -1,0 +1,8 @@
+/.env
+/.env.*
+!/.env.example
+/backups/
+/__pycache__/
+**/__pycache__/
+*.pyc
+*.log
