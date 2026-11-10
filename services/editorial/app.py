@@ -1,5 +1,7 @@
 """Editorial conversation service. The model drafts; deterministic code authorizes dispatch."""
 import json
+import base64
+import threading
 from contextlib import contextmanager
 import os
 import re
@@ -10,6 +12,8 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from image_agent import ImageAgent
+from media_store import MediaStore, LIMIT
+from urllib.parse import parse_qs, unquote
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,7 +24,10 @@ SYSTEM = '''Voce e um assistente editorial em portugues. Converse para montar pu
 Retorne uma resposta curta e o rascunho completo atualizado. Preserve campos nao alterados.
 Pergunte quais integracoes o usuario quer: Facebook (Pagina), Instagram ou X, permitindo varias.
 Apenas marque redes explicitamente pedidas pelo usuario, sem inventar destinos.
-Instagram e Facebook publicam uma foto com legenda; precisam de URL HTTPS publica fornecida pelo usuario.
+Instagram aceita foto, Reel ou carrossel de midias anexadas. Facebook continua com foto unica por URL HTTPS.
+Quando houver midias anexadas, ajude com a legenda; nao peca uma URL nem diga que nao pode ver arquivos anexados.
+Para selecionar arquivos do PC e organizar a ordem, oriente o seletor de midias pelo comando MIDIAS.
+IMPORTAR: caminho carrega arquivo ou pasta da biblioteca local autorizada. Nao invente caminhos.
 X publica texto de ate 280 unidades ponderadas, sem upload de midia. Adapte o texto para cada rede.
 Nao invente URL de imagem, fatos, precos, datas, direitos de uso ou links. Pergunte quando faltar informacao.
 Nao peca chaves, tokens ou IDs de conta. Nao chame ferramentas, nao aprove nem publique nada.
@@ -50,7 +57,7 @@ def normalize_draft(raw):
     return {**{k: raw[k].strip() for k in FIELDS[:-1]}, 'destinations': [p for p in PLATFORMS if p in dest]}
 
 
-def missing(draft):
+def missing(draft, media=None):
     errors = []
     if not draft['destinations']:
         return ['Em quais redes quer postar: Facebook, Instagram, X ou mais de uma?']
@@ -59,7 +66,9 @@ def missing(draft):
         if not draft[key]: errors.append('Falta o texto para ' + p + '.')
         if p == 'instagram' and len(draft[key]) > 2200: errors.append('Reduza a legenda Instagram para 2200 caracteres.')
         if p == 'x' and weighted(draft[key]) > 280: errors.append('Reduza o texto X: estimativa local acima de 280 unidades.')
-    if any(p in draft['destinations'] for p in ('facebook', 'instagram')):
+    if media and any(p != 'instagram' for p in draft['destinations']):
+        errors.append('Midias anexadas estao disponiveis somente para Instagram nesta versao.')
+    if not media and any(p in draft['destinations'] for p in ('facebook', 'instagram')):
         url = urlparse(draft['image_url'])
         if url.scheme != 'https' or not url.hostname or url.username or url.password or any(c.isspace() for c in draft['image_url']):
             errors.append('Envie a URL HTTPS publica da foto para Facebook/Instagram.')
@@ -67,7 +76,7 @@ def missing(draft):
 
 
 class OpenAIWriter:
-    def __call__(self, history, draft):
+    def __call__(self, history, draft, media=None):
         key = os.getenv('OPENAI_API_KEY', '').strip()
         if not key:
             raise ValueError('Configure OPENAI_API_KEY no .env e recrie somente o servico editorial.')
@@ -78,6 +87,14 @@ class OpenAIWriter:
                    'instructions': SYSTEM,
                    'input': [{'role': 'user', 'content': json.dumps({'draft': draft, 'conversation': history}, ensure_ascii=False)}],
                    'text': {'format': {'type': 'json_schema', 'name': 'editorial_draft', 'strict': True, 'schema': SCHEMA}}}
+        if media:
+            content = [{'type':'input_text','text':json.dumps({'draft':draft,'conversation':history,'attachments':[{'name':m['name'],'type':m['mime_type']} for m in media]},ensure_ascii=False)}]
+            directory=Path(os.getenv('CHATBOT_DB_PATH','/data/editorial.sqlite')).parent/'uploaded-media'
+            for m in media:
+                if m['mime_type']=='image/jpeg':
+                    raw=(directory/(m['asset_id']+'.jpg')).read_bytes()
+                    content.append({'type':'input_image','image_url':'data:image/jpeg;base64,'+base64.b64encode(raw).decode()})
+            payload['input']=[{'role':'user','content':content}]
         request = urllib.request.Request('https://api.openai.com/v1/responses', data=json.dumps(payload).encode(),
                     headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}, method='POST')
         try:
@@ -117,6 +134,7 @@ class Editorial:
               UNIQUE(session_id, revision, platform, dry_run));''')
 
         self.images = ImageAgent(self.path)
+        self.media = MediaStore(self.path)
 
     @contextmanager
     def db(self):
@@ -138,8 +156,24 @@ class Editorial:
     def response(self, text, jobs=None):
         return {'output': text, 'jobs': jobs or []}
 
+    def attach(self, sid, ids):
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            s=self.view(db,sid)
+            if s['status']=='dispatching': raise ValueError('Envio em andamento; nao altere as midias.')
+            self.media.select(db,sid,ids)
+            draft=json.loads(s['draft']);draft['image_url']=''
+            db.execute('UPDATE sessions SET draft=? WHERE id=?',(json.dumps(draft),sid))
+            db.execute('UPDATE sessions SET revision=revision+1,token=NULL,preview_at=NULL,status=?,results=? WHERE id=?',('draft','{}',sid))
+        return {'status':'attached','output':'Midias atualizadas. Peca PREVIA para revisar.'}
+
+    def panel(self, db, sid):
+        base=os.getenv('MEDIA_EDITOR_BASE_URL','http://localhost:5681').rstrip('/')
+        return self.response('Selecione arquivos do computador e organize a ordem: '+base+'/?session='+sid+'&key='+self.media.panel_key(db,sid)+'\nDepois de salvar, volte aqui e peca PREVIA ou uma legenda. Voce tambem pode enviar IMPORTAR: caminho de arquivo ou pasta da biblioteca autorizada.')
+
     def preview(self, db, session, draft):
-        errors = missing(draft)
+        media = self.media.items(db, session['id'])
+        errors = missing(draft,media)
         if errors: return self.response('\n'.join(errors))
         absent = [p for p in draft['destinations'] if not self.workflows.get(p)]
         if absent: return self.response('Configure os IDs dos subworkflows no .env: ' + ', '.join(absent))
@@ -148,25 +182,41 @@ class Editorial:
         sections = ['Previa da revisao ' + str(session['revision']) + ':']
         for p in draft['destinations']:
             sections.append(p.upper() + '\n' + draft['x_text' if p == 'x' else p + '_caption'])
-            if p != 'x': sections.append('Foto: ' + draft['image_url'])
+            if p != 'x':
+                if media:
+                    sections.append('Midias na ordem: \n'+'\n'.join(str(i+1)+'. '+m['name']+' ('+m['mime_type']+')' for i,m in enumerate(media)))
+                    if not os.getenv('MEDIA_PUBLIC_BASE_URL','').strip(): sections.append('Hospedagem HTTPS de midias pendente; simulacao disponivel.')
+                else: sections.append('Foto: ' + draft['image_url'])
         sections.append('Destinos: ' + ', '.join(draft['destinations']))
         sections.append('Responda SIMULAR ' + token + ' para testar sem publicar.')
         sections.append(('Para publicar esta versao, responda CONFIRMAR ' + token + '.') if self.live else 'Publicacao real desabilitada nesta instalacao; modo de simulacao disponivel.')
         sections.append('Voce tambem pode pedir ajustes ou cancelar. A previa expira em 30 minutos.')
         return self.response('\n\n'.join(sections))
 
-    def chat(self, sid, message):
+    def chat(self, sid, message, attachments=None):
         if not isinstance(sid, str) or not re.fullmatch(r'[\w-]{8,160}', sid):
             raise ValueError('Sessao invalida; inicie uma nova conversa.')
         if not isinstance(message, str) or not message.strip() or len(message) > 12000:
             raise ValueError('Envie uma mensagem com ate 12000 caracteres.')
         message = message.strip()
+        if attachments:
+            if not isinstance(attachments,list) or any(not isinstance(x,str) for x in attachments):raise ValueError('Anexos invalidos.')
+            self.attach(sid,attachments)
+        if message.startswith('file://'):
+            message='IMPORTAR: '+message
+        if message.lower().startswith('importar:'):
+            items=self.media.import_local(sid,message.split(':',1)[1].strip())
+            self.attach(sid,[m['asset_id'] for m in items])
+            return self.response('Importei '+str(len(items))+' midia(s). Envie a legenda e escolha Instagram; use MIDIAS para conferir ou mudar a ordem.')
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             s = self.view(db, sid)
             draft = json.loads(s['draft'])
+            media = self.media.items(db,sid)
             if s['status'] == 'dispatching':
                 return self.response('Ja existe um envio em andamento. Nao vou repetir. Se nao houver retorno, verifique as execucoes no n8n antes de retomar.')
+            if message.casefold() in ('midias','mídias','anexar','arquivos'):
+                return self.panel(db,sid)
             image_command = re.fullmatch(r'(gerar|simular) imagem:\s*(.+)', message, re.I | re.S)
             if image_command:
                 if not self.image_workflow_id:
@@ -189,38 +239,43 @@ class Editorial:
                     return self.response('A previa expirou. Peca uma nova previa antes de confirmar.')
                 if not dry_run and not self.live:
                     return self.response('Publicacao real desabilitada. Use SIMULAR ' + s['token'] + ' para testar.')
-                errors = missing(draft)
+                errors = missing(draft,media)
                 if errors: return self.response('\n'.join(errors))
                 if any(not self.workflows.get(p) for p in draft['destinations']):
                     return self.response('Um subworkflow nao esta configurado. Nenhum envio foi iniciado.')
                 existing = db.execute('SELECT 1 FROM jobs WHERE session_id=? AND revision=? AND dry_run=? LIMIT 1', (sid,s['revision'],int(dry_run))).fetchone()
                 if existing:
                     return self.response('Esta revisao ja foi tentada neste modo. Confira os resultados antes de iniciar outra publicacao.')
+                if media and not dry_run and not os.getenv('MEDIA_PUBLIC_BASE_URL','').strip():
+                    return self.response('Configure a hospedagem HTTPS das midias antes de publicar. A confirmacao nao foi consumida.')
                 jobs = []
                 for platform in draft['destinations']:
                     job_id = secrets.token_hex(16)
                     payload = {'platform': platform, 'dry_run': dry_run, 'approved': not dry_run}
                     if platform == 'x': payload.update(operation='publish_text', text=draft['x_text'])
-                    else: payload.update(caption=draft[platform+'_caption'], image_url=draft['image_url'])
+                    else:
+                        payload.update(caption=draft[platform+'_caption'], image_url=draft['image_url'])
+                        if media: payload.update(media=self.media.public_items(media),request_id=job_id)
                     db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,NULL)', (job_id,sid,s['revision'],platform,int(dry_run),'dispatching'))
                     jobs.append({'job_id': job_id, 'platform': platform, 'workflow_id': self.workflows[platform], 'payload': payload})
                 db.execute('UPDATE sessions SET status=?,token=NULL WHERE id=?', ('dispatching',sid))
                 return self.response('Executando ' + ('simulacao' if dry_run else 'publicacao') + ' nas redes confirmadas.', jobs)
             simple = message.casefold().strip(' .!')
             if simple in ('oi','ola','olá','bom dia','boa tarde','boa noite','ajuda'):
-                return self.response('Ola! Vamos montar uma publicacao. Qual e o assunto, objetivo e tom? Depois escolhemos Facebook, Instagram, X ou varias redes. Nao envie chaves ou tokens por aqui.')
+                return self.response('Ola! Vamos montar uma publicacao. Qual e o assunto, objetivo e tom? Escolha Facebook, Instagram ou X. Para arquivos do computador, envie MIDIAS ou IMPORTAR: caminho da biblioteca. Nao envie chaves ou tokens por aqui.')
             if simple == 'status':
                 results = json.loads(s['results'])
                 return self.response('Revisao ' + str(s['revision']) + ' — ' + s['status'] + ('\n' + json.dumps(results,ensure_ascii=False) if results else ''))
             if simple in ('cancelar','novo','nova publicacao','nova publicação'):
                 # Preserva o contador de revisao para nao colidir com tentativas anteriores.
                 db.execute('UPDATE sessions SET revision=revision+1,draft=?,history=?,token=NULL,preview_at=NULL,status=?,results=? WHERE id=?', (json.dumps(EMPTY),'[]','draft','{}',sid))
+                self.media.select(db,sid,[])
                 return self.response('Rascunho anterior encerrado. Qual publicacao vamos preparar agora?')
             if simple in ('previa','prévia','ver previa','ver prévia'):
                 return self.preview(db,s,draft)
             history = json.loads(s['history'])
             history.append({'role':'user','content':message})
-            answer = self.writer(history[-20:],draft)
+            answer = self.writer(history[-20:],draft,media) if isinstance(self.writer,OpenAIWriter) else self.writer(history[-20:],draft)
             updated = normalize_draft(answer['draft'])
             # Uma URL sugerida pela IA precisa existir no historico do usuario ou no rascunho anterior.
             sources = '\n'.join(x['content'] for x in history if x['role']=='user')
@@ -232,7 +287,7 @@ class Editorial:
             db.execute('UPDATE sessions SET revision=?,draft=?,history=?,token=NULL,preview_at=NULL,status=?,results=? WHERE id=?',
                        (revision,json.dumps(updated),json.dumps(history[-20:]),'draft','{}',sid))
             s.update(revision=revision)
-            errors = missing(updated)
+            errors = missing(updated,media)
             if errors: return self.response(answer['reply'] + '\n\n' + '\n'.join(errors))
             return self.preview(db,s,updated)
 
@@ -261,6 +316,7 @@ class Editorial:
                         current=self.view(db,sid)
                         if current['revision']==row['revision']:
                             updated=json.loads(current['draft']);updated['image_url']=generated.get('image_url') or ''
+                            self.media.select(db,sid,[])
                             db.execute('UPDATE sessions SET draft=?,token=NULL,preview_at=NULL WHERE id=?',(json.dumps(updated),sid))
                 elif isinstance(result,dict) and not row['dry_run'] and result.get('status') == 'published':
                     post_id=result.get('post_id')
@@ -300,11 +356,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_json(200 if self.path=='/healthz' else 404,{'status':'ok'} if self.path=='/healthz' else {'error':'not_found'})
     def do_POST(self):
+        if urlparse(self.path).path=='/media/upload':
+            try:
+                query=parse_qs(urlparse(self.path).query)
+                size=int(self.headers.get('Content-Length','0'))
+                if not 0<size<=LIMIT:raise ValueError('Arquivo vazio ou acima de 100 MB.')
+                result=self.editorial.media.upload(query.get('session',[''])[0],query.get('name',[''])[0],self.rfile.read(size))
+                return self.send_json(200,result)
+            except (ValueError,TypeError) as error:return self.send_json(400,{'error':str(error)})
         try:
             size=int(self.headers.get('Content-Length','0'))
             if size<=0 or size>65536: raise ValueError('Requisicao invalida')
             data=json.loads(self.rfile.read(size))
-            if self.path=='/chat': result=self.editorial.chat(data.get('session_id'),data.get('message'))
+            if self.path=='/chat': result=self.editorial.chat(data.get('session_id'),data.get('message'),data.get('attachments'))
             elif self.path=='/images/generate': result=self.editorial.images.generate(data)
             elif self.path=='/results': result=self.editorial.results(data.get('results'))
             else: return self.send_json(404,{'error':'not_found'})
@@ -317,4 +381,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__=='__main__':
     os.umask(0o077)
     Handler.editorial=Editorial(os.getenv('CHATBOT_DB_PATH','/data/editorial.sqlite'))
+    from media_panel import serve
+    threading.Thread(target=serve,args=(Handler.editorial,),daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()

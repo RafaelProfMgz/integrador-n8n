@@ -23,6 +23,13 @@ def publisher(platform):
         result=node('Resultado editorial','code',{'jsCode':"const r=$input.first().json;const id="+("r.post_id || r.id" if platform=='facebook' else 'r.id')+";if(r.error || r.errors?.length || typeof id !== 'string' || !/^[0-9_]+$/.test(id)) throw new Error('Resultado remoto ambiguo; reconcilie antes de repetir');return [{json:{status:'published',platform:'"+platform+"',post_id:id}}];"},2000,120,2)
         workflow['nodes'].append(result)
         workflow['connections'][name]={'main':[[{'node':'Resultado editorial','type':'main','index':0}]]}
+    if platform=='instagram':
+        branch=node('Tem midias anexadas','if',{'conditions':{'options':{'typeValidation':'strict','version':2},'conditions':[{'id':'has-media','leftValue':'={{ Array.isArray($json.payload?.media) && $json.payload.media.length > 0 }}','rightValue':True,'operator':{'type':'boolean','operation':'true','singleValue':True}}],'combinator':'and'},'options':{}},180,version=2.2)
+        adapter=node('Publicar midias Instagram','httpRequest',{'method':'POST','url':'http://instagram-media:8082/publish','sendBody':True,'specifyBody':'json','jsonBody':'={{ JSON.stringify($json.payload) }}','options':{'timeout':900000}},440,-180,4.2)
+        adapter['retryOnFail']=False
+        workflow['nodes'] += [branch,adapter]
+        workflow['connections']['Entrada editorial']={'main':[[{'node':'Tem midias anexadas','type':'main','index':0}]]}
+        workflow['connections']['Tem midias anexadas']={'main':[[{'node':'Publicar midias Instagram','type':'main','index':0}],[{'node':'Preparar publicacao','type':'main','index':0}]]}
     return workflow
 
 
@@ -37,9 +44,9 @@ def chatbot():
     chat.update(type='@n8n/n8n-nodes-langchain.chatTrigger',typeVersion=1.5,webhookId='editorial-social-chat')
     chat['parameters']={'public':False,'mode':'hostedChat','authentication':'n8nUserAuth','requireExecuteAccess':True,
        'availableInChat':False,'initialMessages':'Ola! Vamos criar sua publicacao. Qual e o assunto?',
-       'options':{'responseMode':'lastNode','title':'Assistente de publicacoes','subtitle':'Prepare, revise e escolha suas redes','allowFileUploads':False}}
+       'options':{'responseMode':'lastNode','title':'Assistente de publicacoes','subtitle':'Prepare, revise e escolha suas redes','allowFileUploads':True,'allowedFilesMimeTypes':'image/jpeg,image/png,video/mp4,video/quicktime'}}
     nodes=[chat,
-      service('Conversar e preparar','/chat',"={{ JSON.stringify({session_id:$json.sessionId,message:$json.chatInput}) }}",220),
+      service('Conversar e preparar','/chat',"={{ JSON.stringify({session_id:$('Chat editorial').first().json.sessionId,message:$('Chat editorial').first().json.chatInput || 'Midias anexadas. Ajude a preparar a legenda para Instagram.',attachments:$json.attachments || []}) }}",220),
       node('Tem envios','if',{'conditions':{'options':{'caseSensitive':True,'leftValue':'','typeValidation':'strict','version':2},
          'conditions':[{'id':'dispatch','leftValue':'={{ $json.jobs.length > 0 }}','rightValue':True,
             'operator':{'type':'boolean','operation':'true','singleValue':True}}],'combinator':'and'},'options':{}},440,version=2.2),
@@ -50,15 +57,21 @@ def chatbot():
       node('Reunir resultados','code',{'jsCode':"const jobs=$('Preparar envios').all();const results=$input.all();if(jobs.length!==results.length) throw new Error('Numero inesperado de retornos; confira as execucoes antes de repetir');return [{json:{results:results.map((item,i)=>({job_id:jobs[i].json.job_id,result:item.json}))}}];"},1100,version=2),
       service('Registrar resultados','/results','={{ JSON.stringify($json) }}',1320)]
     nodes[5]['onError']='continueRegularOutput'
+    nodes.extend([
+      node('Separar anexos','code',{'jsCode':"const item=$input.first(); const entries=Object.entries(item.binary || {}); if(!entries.length)return [{json:{has_files:false}}]; return entries.map(([key,file])=>({json:{has_files:true,name:file.fileName || 'arquivo.jpg'},binary:{data:file}}));"},60,version=2),
+      node('Recebeu arquivos','if',{'conditions':{'options':{'typeValidation':'strict','version':2},'conditions':[{'id':'has-files','leftValue':'={{ $json.has_files }}','rightValue':True,'operator':{'type':'boolean','operation':'true','singleValue':True}}],'combinator':'and'},'options':{}},120,version=2.2),
+      node('Guardar anexo','httpRequest',{'method':'POST','url':"={{ 'http://editorial:8080/media/upload?session=' + encodeURIComponent($('Chat editorial').first().json.sessionId) + '&name=' + encodeURIComponent($json.name) }}",'sendBody':True,'contentType':'binaryData','inputDataFieldName':'data','options':{'timeout':120000}},180,-220,4.2),
+      node('Reunir anexos','code',{'jsCode':"return [{json:{attachments:$input.all().map(item=>{if(!item.json.asset_id)throw new Error('Anexo nao foi salvo');return item.json.asset_id;})}}];"},220,-220,2)])
     edges={}
     def connect(a,b,index=0):
         main=edges.setdefault(a,{'main':[]})['main']
         while len(main)<=index: main.append([])
         main[index].append({'node':b,'type':'main','index':0})
-    for a,b in [('Chat editorial','Conversar e preparar'),('Conversar e preparar','Tem envios'),('Tem envios','Preparar envios'),
+    for a,b in [('Chat editorial','Separar anexos'),('Separar anexos','Recebeu arquivos'),('Recebeu arquivos','Guardar anexo'),('Guardar anexo','Reunir anexos'),('Reunir anexos','Conversar e preparar'),('Conversar e preparar','Tem envios'),('Tem envios','Preparar envios'),
                 ('Preparar envios','Chamar publicador'),('Chamar publicador','Reunir resultados'),
                 ('Reunir resultados','Registrar resultados'),('Registrar resultados','Responder')]: connect(a,b)
     connect('Tem envios','Responder',1)
+    connect('Recebeu arquivos','Conversar e preparar',1)
     return {'name':'Editorial - chatbot de publicacoes','active':False,'nodes':nodes,'connections':edges,
             'settings':{'executionOrder':'v1','timezone':'America/Cuiaba','saveManualExecutions':True},'pinData':{},'tags':[]}
 

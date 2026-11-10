@@ -244,6 +244,59 @@
       "parameters": {
         "jsCode": "const r=$input.first().json;const id=r.id;if(r.error || r.errors?.length || typeof id !== 'string' || !/^[0-9_]+$/.test(id)) throw new Error('Resultado remoto ambiguo; reconcilie antes de repetir');return [{json:{status:'published',platform:'instagram',post_id:id}}];"
       }
+    },
+    {
+      "id": "tem-midias-anexadas",
+      "name": "Tem midias anexadas",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        180,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-media",
+              "leftValue": "={{ Array.isArray($json.payload?.media) && $json.payload.media.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "publicar-midias-instagram",
+      "name": "Publicar midias Instagram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        -180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://instagram-media:8082/publish",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "retryOnFail": false
     }
   ],
   "connections": {
@@ -324,7 +377,7 @@
       "main": [
         [
           {
-            "node": "Preparar publicacao",
+            "node": "Tem midias anexadas",
             "type": "main",
             "index": 0
           }
@@ -347,6 +400,24 @@
         [
           {
             "node": "Resultado editorial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem midias anexadas": {
+      "main": [
+        [
+          {
+            "node": "Publicar midias Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar publicacao",
             "type": "main",
             "index": 0
           }

@@ -74,12 +74,18 @@ services:
     logging: *logging
   editorial:
     build: ./services/editorial
+    ports:
+      - '127.0.0.1:${MEDIA_EDITOR_PORT:-5681}:8081'
     restart: unless-stopped
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-1.5}
       IMAGE_PUBLIC_BASE_URL: ${IMAGE_PUBLIC_BASE_URL:-}
+      MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_BASE_URL:-}
+      MEDIA_EDITOR_BASE_URL: ${MEDIA_EDITOR_BASE_URL:-http://localhost:5681}
+      MEDIA_LIBRARY_HOST_PATH: ${MEDIA_LIBRARY_HOST_PATH:-}
+      MEDIA_LIBRARY_ROOT: /library
       N8N_IMAGE_AGENT_WORKFLOW_ID: ${N8N_IMAGE_AGENT_WORKFLOW_ID:-}
       CHATBOT_PUBLISH_ENABLED: ${CHATBOT_PUBLISH_ENABLED:-false}
       N8N_PUBLISH_FACEBOOK_WORKFLOW_ID: ${N8N_PUBLISH_FACEBOOK_WORKFLOW_ID:-}
@@ -87,11 +93,44 @@ services:
       N8N_PUBLISH_X_WORKFLOW_ID: ${N8N_PUBLISH_X_WORKFLOW_ID:-}
     volumes:
       - editorial_data:/data
+      - ${MEDIA_LIBRARY_HOST_PATH:-./media-library}:/library:ro
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5
+    logging: *logging
+  instagram-media:
+    build: ./services/editorial
+    command: [python, /app/media_publisher.py]
+    restart: unless-stopped
+    environment:
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-}
+      META_INSTAGRAM_ACCOUNT_ID: ${META_INSTAGRAM_ACCOUNT_ID:-}
+      META_INSTAGRAM_ACCESS_TOKEN: ${META_INSTAGRAM_ACCESS_TOKEN:-}
+      MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_BASE_URL:-}
+    volumes:
+      - media_publisher_data:/data
+    healthcheck:
+      disable: true
+    logging: *logging
+  media-public:
+    build: ./services/editorial
+    command: [python, /app/public_media.py]
+    restart: unless-stopped
+    volumes:
+      - editorial_data:/data:ro
+    healthcheck:
+      disable: true
+    logging: *logging
+  media-tunnel:
+    image: ngrok/ngrok:3.39.11-debian
+    profiles: [media-public]
+    command: [http, 'media-public:8083', '--url=https://${NGROK_DOMAIN:-}']
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    restart: unless-stopped
+    depends_on: [media-public]
     logging: *logging
   community:
     build: ./services/editorial
@@ -129,6 +168,7 @@ services:
       retries: 5
     logging: *logging
 volumes:
+  media_publisher_data:
   community_data:
   editorial_data:
   postgres17_data:

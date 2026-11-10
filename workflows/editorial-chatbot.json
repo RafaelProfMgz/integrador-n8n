@@ -22,7 +22,8 @@
           "responseMode": "lastNode",
           "title": "Assistente de publicacoes",
           "subtitle": "Prepare, revise e escolha suas redes",
-          "allowFileUploads": false
+          "allowFileUploads": true,
+          "allowedFilesMimeTypes": "image/jpeg,image/png,video/mp4,video/quicktime"
         }
       },
       "webhookId": "editorial-social-chat"
@@ -41,7 +42,7 @@
         "url": "http://editorial:8080/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({session_id:$json.sessionId,message:$json.chatInput}) }}",
+        "jsonBody": "={{ JSON.stringify({session_id:$('Chat editorial').first().json.sessionId,message:$('Chat editorial').first().json.chatInput || 'Midias anexadas. Ajude a preparar a legenda para Instagram.',attachments:$json.attachments || []}) }}",
         "options": {
           "timeout": 90000
         }
@@ -162,10 +163,139 @@
           "timeout": 90000
         }
       }
+    },
+    {
+      "id": "separar-anexos",
+      "name": "Separar anexos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const item=$input.first(); const entries=Object.entries(item.binary || {}); if(!entries.length)return [{json:{has_files:false}}]; return entries.map(([key,file])=>({json:{has_files:true,name:file.fileName || 'arquivo.jpg'},binary:{data:file}}));"
+      }
+    },
+    {
+      "id": "recebeu-arquivos",
+      "name": "Recebeu arquivos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-files",
+              "leftValue": "={{ $json.has_files }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "guardar-anexo",
+      "name": "Guardar anexo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        180,
+        -220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://editorial:8080/media/upload?session=' + encodeURIComponent($('Chat editorial').first().json.sessionId) + '&name=' + encodeURIComponent($json.name) }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "reunir-anexos",
+      "name": "Reunir anexos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{attachments:$input.all().map(item=>{if(!item.json.asset_id)throw new Error('Anexo nao foi salvo');return item.json.asset_id;})}}];"
+      }
     }
   ],
   "connections": {
     "Chat editorial": {
+      "main": [
+        [
+          {
+            "node": "Separar anexos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar anexos": {
+      "main": [
+        [
+          {
+            "node": "Recebeu arquivos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recebeu arquivos": {
+      "main": [
+        [
+          {
+            "node": "Guardar anexo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Conversar e preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar anexo": {
+      "main": [
+        [
+          {
+            "node": "Reunir anexos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reunir anexos": {
       "main": [
         [
           {

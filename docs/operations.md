@@ -50,3 +50,7 @@ Para o chatbot, preserve tambem o volume `n8n-social_editorial_data` e o arquivo
 O subagente de imagem guarda JPEGs em `/data/generated-images`, no mesmo volume editorial. O backup inclui `generated-images.tar.gz` junto do SQLite. Restaure os dois com o servico parado; aponte o mesmo dominio de midias para o volume restaurado. A limpeza de arquivos ainda e manual.
 
 O monitor de comentarios usa `community_data` com `/data/community.sqlite`. O backup inclui esse banco e as skills quando o servico esta em execucao. Restaure-os juntos, com `community` parado; preserve registros de envio incerto e opt-outs para nao repetir respostas. O monitor e importado inativo; nao o publique antes de configurar permissoes e revisar a fila.
+
+## Midias enviadas pelo operador
+
+Preserve `editorial_data/uploaded-media` junto de `editorial.sqlite` e o volume `media_publisher_data` com `media-publisher.sqlite`. O backup inclui `uploaded-media.tar.gz` e o banco de tentativas do adaptador quando os servicos estao em execucao. Na restauracao, mantenha editorial e instagram-media parados, restaure arquivos/bancos com dono 1000:1000 e nao descarte estados incertos. O painel local usa a porta configurada em MEDIA_EDITOR_PORT; nao o encaminhe pelo tunel publico. Apenas media-public pode receber trafego de midias externo. A biblioteca original e montada somente para leitura e nao substitui o backup dos anexos normalizados.

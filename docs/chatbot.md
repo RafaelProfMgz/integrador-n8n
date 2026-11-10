@@ -14,7 +14,7 @@ CHATBOT_PUBLISH_ENABLED=false
 
 2. Para aplicar somente a chave/modelo do chatbot, sem recriar n8n: `docker compose up -d --no-deps --build --wait editorial`.
 3. Em <http://localhost:5680>, abra **Editorial - chatbot de publicacoes** e use **Open chat** no editor. O workflow fica inativo e o chat fica privado durante a configuracao.
-4. Converse sobre assunto, objetivo, publico, tom e texto. Escolha Facebook, Instagram, X ou varias redes. Facebook e Instagram precisam de uma imagem JPEG em URL HTTPS publica; o X recebe somente texto nesta versao.
+4. Converse sobre assunto, objetivo, publico, tom e texto. Escolha Facebook, Instagram, X ou varias redes. Facebook usa uma foto JPEG por URL HTTPS publica. Instagram aceita foto por URL ou anexos locais (foto, Reel e carrossel) conforme a secao de arquivos abaixo; o X recebe somente texto nesta versao.
 5. Confira a previa. Responda `SIMULAR codigo` usando o codigo apresentado: o n8n chama os publicadores reais em modo dry-run, sem acessar as APIs sociais. A chave OpenAI e necessaria para escrever/revisar, mas a saudacao, status e os comandos sao locais.
 
 Os IDs de roteamento tambem ficam no `.env`, preenchidos pelo instalador:
@@ -97,3 +97,43 @@ Passaram 40 testes locais de validacao, conversa, isolamento, confirmacao concor
 ## Subagente de imagem
 
 O chatbot pode chamar um quarto tipo de subworkflow, dedicado exclusivamente a imagem. Use `GERAR IMAGEM: descricao` ou `SIMULAR IMAGEM: descricao`. Essa chamada invalida a previa anterior e nao publica nada. Para configurar modelo, retorno binario e URL publica, veja [geracao de imagem](image-agent.md).
+
+## Arquivos do computador e carrosseis
+
+O chat aceita JPEG, PNG, MP4 e MOV pelo botao de anexo. Tambem recebe `MIDIAS`: abre um seletor local com miniaturas, videos, selecao multipla, remocao e botoes para mudar a ordem. Clique em **Usar esta sequencia no rascunho**, volte ao chat e peca uma legenda ou `PREVIA`. O painel exige o link privado da propria conversa; uma conversa nao pode anexar arquivos da outra.
+
+`IMPORTAR: caminho` carrega um arquivo ou uma pasta da biblioteca autorizada. Um `file:///...` enviado sozinho tambem e reconhecido. `MEDIA_LIBRARY_HOST_PATH` no `.env` escolhe a unica pasta do host montada em `/library`, somente para leitura; caminhos fora dela e symlinks que escapam sao recusados. Caminhos de outro computador precisam ser enviados pelo botao de arquivos.
+
+Configuracoes locais, exclusivamente no `.env`:
+
+```dotenv
+MEDIA_EDITOR_PORT=5681
+MEDIA_EDITOR_BASE_URL=http://localhost:5681
+MEDIA_LIBRARY_HOST_PATH=
+MEDIA_PUBLIC_BASE_URL=
+NGROK_AUTHTOKEN=
+NGROK_DOMAIN=
+```
+
+O painel e publicado somente em loopback. A API editorial continua interna. O painel altera apenas anexos, nunca aprova nem dispara publicacao. Ate 10 itens, 100 MB por arquivo; fotos sao convertidas para JPEG 1080x1350 com margens para preservar a imagem inteira. Videos exigem H.264, audio AAC quando presente e duracao de 3 a 900 segundos; a Meta ainda pode rejeitar dimensoes ou outros requisitos. O modelo recebe as fotos para ajudar na legenda; videos sao identificados pelo nome/tipo, sem prometer analise audiovisual.
+
+Anexos novos, remocao e mudanca de ordem incrementam a revisao e invalidam qualquer confirmacao anterior. A selecao fica separada do JSON do modelo, que nao pode trocar os arquivos. Um video sozinho vira Reel; dois a dez itens viram carrossel na ordem confirmada. Anexos sao suportados inicialmente somente para Instagram; Facebook e X mantem os formatos anteriores e um rascunho com anexos para essas redes e bloqueado com orientacao.
+
+Para o Instagram buscar os arquivos, `MEDIA_PUBLIC_BASE_URL` precisa apontar para HTTPS terminado em `/media/files`. O servico `media-public` expoe exclusivamente os arquivos com nomes aleatorios; nao encaminha chat, painel ou API editorial. Opcionalmente configure as credenciais/dominio ngrok e inicie `docker compose --profile media-public up -d media-tunnel`. O perfil e opt-in; nao habilita publicacao nem agendamento. Confirme externamente a URL antes do primeiro envio.
+
+O adaptador `instagram-media` recebe somente as credenciais Instagram necessarias, sem chave OpenAI, e registra containers/tentativas no volume `media_publisher_data`. Tokens entram apenas no header da API. Antes de cada POST registra o inicio; timeout ou processamento incompleto preservam os IDs e bloqueiam repeticao automatica. O polling repete somente GETs. A publicacao final exige FINISHED.
+
+Aplicar uma atualizacao:
+
+```sh
+docker compose config --quiet
+docker compose up -d --build --wait editorial instagram-media media-public
+python3 scripts/install_media_support.py
+python3 -m unittest discover -s tests
+```
+
+O instalador atualiza somente o chatbot e o publicador Instagram; preserva o estado publicado/inativo do chat, sem executar smoke sobre conversas em uso. A flag `CHATBOT_PUBLISH_ENABLED` continua sob controle do operador; instalar o suporte nao a habilita.
+
+Referencia: [publicacao de conteudo Instagram pela Meta](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/content-publishing/). A consulta automatizada a essa pagina retornou limitacao de acesso; o envio real deve ser validado com as permissoes da conta e a versao Graph configurada.
+
+Validacao desta extensao: testes comportamentais locais, upload binario real pelo n8n, chamada ao adaptador Instagram em dry-run, painel HTTP e arquivo sintetico por HTTPS passaram. O tunel recusou rotas de chat/API. Nenhuma publicacao social ou chamada paga OpenAI foi feita nessa validacao.

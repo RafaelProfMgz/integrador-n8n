@@ -26,7 +26,7 @@ Um processo n8n em modo regular atende o inicio do projeto. Banco sem porta publ
 
 PostgreSQL guarda o estado interno do n8n; o volume n8n_data guarda configuracao e binarios. A chave N8N_ENCRYPTION_KEY vem do `.env` e deve acompanhar todos os backups. A versao n8n e fixada em 2.47.3; PostgreSQL usa a linha 17-alpine, que recebe atualizacoes. Para builds integralmente reproduziveis, fixe tambem digests apos validar as imagens.
 
-Os templates usam Manual Trigger e HTTP Request com header Authorization resolvido por referencia `$env`; IDs, versao Graph e tokens sao configurados exclusivamente no `.env`. Nao ha cron, webhook publico nem agente de IA publicando. A imagem precisa estar acessivel por HTTPS para a Meta; o Docker nao a hospeda. Suporte inicial: foto individual; reels, videos, carrosseis e stories exigem outros fluxos.
+Os templates usam Manual Trigger e HTTP Request com header Authorization resolvido por referencia `$env`; IDs, versao Graph e tokens sao configurados exclusivamente no `.env`. Nao ha cron, webhook publico nem agente de IA publicando. A imagem precisa estar acessivel por HTTPS para a Meta; o Docker nao a hospeda. Os templates manuais atendem foto individual. Pelo chatbot, anexos Instagram atendem foto, Reel e carrossel; stories e formatos adicionais continuam fora do escopo.
 
 ## Contrato editorial futuro
 
@@ -62,3 +62,7 @@ O workflow dedicado recebe descricao e devolve JPEG em binary.data. A implementa
 ## Comentarios da comunidade
 
 O servico `community` e separado do editorial, recebe somente credenciais sociais e configuracao do modulo e usa o volume `community_data`. Consulta posts recentes proprios, aplica skills JSON do Alpendre e guarda propostas, aprovacoes, opt-outs e tentativas em SQLite. O n8n agenda ou inicia ciclos e expoe helpers internos para classificar/aprovar. O modulo nao recebe chave OpenAI e nao exige liberar acesso a ambiente nos nodes. Leitura/envio comecam desligados. Adaptadores atuais: Instagram/Facebook/X, com X em revisao por padrao. Guia completo: `docs/comment-workflows.md`.
+
+## Upload de midias implementado
+
+O chatbot recebe anexos binarios e guarda-os no editorial_data. O painel local da mesma sessao permite upload multiplo, previa e ordenacao; importacao de caminhos fica limitada a uma biblioteca explicitamente montada em modo somente leitura. A IA recebe fotos para redacao, mas a selecao e a ordem sao controladas pelo servico editorial. Alterar midias invalida a confirmacao. O adaptador instagram-media, separado do modelo, implementa foto, Reel e carrossel com registro duravel de containers e bloqueio apos resultado incerto. media-public serve somente arquivos; HTTPS externo depende de proxy/tunel configurado. Facebook e X continuam com os formatos anteriores. Nenhuma agenda ou permissao de envio e habilitada pela instalacao.

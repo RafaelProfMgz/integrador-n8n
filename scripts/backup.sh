@@ -12,6 +12,12 @@ docker compose run --rm --no-deps -T --user root --entrypoint tar n8n -C /home/n
 if [ -n "$(docker compose ps -q --status running editorial)" ]; then
   docker compose exec -T editorial python -c 'import sqlite3,sys; source=sqlite3.connect("/data/editorial.sqlite"); target=sqlite3.connect(":memory:"); source.backup(target); sys.stdout.buffer.write(target.serialize()); source.close(); target.close()' > "$backup_dir/editorial.sqlite"
   docker compose exec -T editorial tar -C /data -czf - generated-images > "$backup_dir/generated-images.tar.gz"
+  if docker compose exec -T editorial test -d /data/uploaded-media; then
+    docker compose exec -T editorial tar -C /data -czf - uploaded-media > "$backup_dir/uploaded-media.tar.gz"
+  fi
+fi
+if [ -n "$(docker compose ps -q --status running instagram-media)" ]; then
+  docker compose exec -T instagram-media python -c 'import sqlite3,sys; source=sqlite3.connect("/data/media-publisher.sqlite"); target=sqlite3.connect(":memory:"); source.backup(target); sys.stdout.buffer.write(target.serialize()); source.close(); target.close()' > "$backup_dir/media-publisher.sqlite"
 fi
 if [ -n "$(docker compose ps -q --status running community)" ]; then
   docker compose exec -T community python -c 'import sqlite3,sys; source=sqlite3.connect("/data/community.sqlite"); target=sqlite3.connect(":memory:"); source.backup(target); sys.stdout.buffer.write(target.serialize()); source.close(); target.close()' > "$backup_dir/community.sqlite"
